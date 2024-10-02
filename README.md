@@ -9,3 +9,7 @@ This repo contains a set of simple golang applications that use Dapr and show so
 dapr init -k
 make deploy
 ```
+
+### References
+
+[Original crude app](https://github.com/famarting/crud-app)
