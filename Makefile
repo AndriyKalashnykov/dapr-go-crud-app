@@ -12,7 +12,7 @@ update:
 
 push:
 	ko publish ./cmd
-	ko create ./cmd/timeline
+	ko publish ./cmd/timeline
 	ko publish ./cmd/datagen
 	ko publish ./cmd/errorgen
 	ko publish ./cmd/consumer
