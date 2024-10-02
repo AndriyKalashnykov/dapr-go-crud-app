@@ -19,5 +19,5 @@ spec:
     spec:
       containers:
       - name: errorgen-app
-        image: docker.io/famargon/errorgen-63e653f34f2b5c9ee4123a4e50fd8d16:latest
+        image: andriykalashnykov/errorgen-4c58529a678401f7741de37538be0187:latest
         imagePullPolicy: Always

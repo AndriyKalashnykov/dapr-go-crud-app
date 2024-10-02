@@ -22,5 +22,5 @@ spec:
     spec:
       containers:
       - name: app
-        image: docker.io/famargon/consumer-12cf2b6a44aee014fafe9185282836fd:latest
+        image: andriykalashnykov/consumer-b4adbe37b68878419c81572ea72032a5:latest
         imagePullPolicy: Always

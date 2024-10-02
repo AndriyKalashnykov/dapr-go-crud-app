@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: crud-app
-        image: docker.io/famargon/cmd-ccb721d992a9dd6158bf73b1f1bc6efb:latest
+        image: andriykalashnykov/cmd-6546bb5bccd43ba1fbe91fa0d6bca6d4:latest
         imagePullPolicy: Always
         args:
           - "serve"

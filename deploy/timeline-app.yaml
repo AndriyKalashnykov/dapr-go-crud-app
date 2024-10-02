@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: timeline-app
-        image: docker.io/famargon/timeline-817bcff8f93d81a39bbda2d411cf379f:latest
+        image: andriykalashnykov/timeline-d6193c707bb7118be06d0e88b3f7a67b:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

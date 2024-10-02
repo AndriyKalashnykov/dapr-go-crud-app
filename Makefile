@@ -1,5 +1,5 @@
 
-export KO_DOCKER_REPO=docker.io/famargon
+export KO_DOCKER_REPO=docker.io/andriykalashnykov
 
 test:
 	@go test ./...
@@ -12,7 +12,7 @@ update:
 
 push:
 	ko publish ./cmd
-	ko publish ./cmd/timeline
+	ko create ./cmd/timeline
 	ko publish ./cmd/datagen
 	ko publish ./cmd/errorgen
 	ko publish ./cmd/consumer

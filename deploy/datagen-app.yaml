@@ -19,6 +19,6 @@ spec:
     spec:
       containers:
       - name: datagen-app
-        image: docker.io/famargon/datagen-9b8bcb9dfb1aeb79acc402f8b9d5d0b3:latest
+        image: andriykalashnykov/datagen-30887c0ed1c30f9d8b144a6c421055bf:latest
         imagePullPolicy: Always
 

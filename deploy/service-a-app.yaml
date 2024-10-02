@@ -21,5 +21,5 @@ spec:
     spec:
       containers:
       - name: service-a
-        image: docker.io/famargon/service-a-877a6ee3f81467ac45450b736bd87aad:latest
+        image: andriykalashnykov/service-a-248c5038910590005d59a42ce529f584:latest
         imagePullPolicy: Always

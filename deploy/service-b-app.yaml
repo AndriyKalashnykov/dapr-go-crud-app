@@ -22,5 +22,5 @@ spec:
     spec:
       containers:
       - name: service-b
-        image: docker.io/famargon/service-b-7eda1c2433ddc30eb307d61d424e0e3a:latest
+        image: andriykalashnykov/service-b-9acac2ae91b0dae0733e54792b512b0c:latest
         imagePullPolicy: Always
