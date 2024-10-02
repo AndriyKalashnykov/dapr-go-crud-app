@@ -1,0 +1,10 @@
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: timeline-sub
+spec:
+  topic: todos
+  route: /todos
+  pubsubname: pubsub
+scopes:
+- timeline-app

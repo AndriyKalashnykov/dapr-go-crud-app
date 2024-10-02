@@ -1,0 +1,25 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-a
+spec:
+  selector:
+    matchLabels:
+      app: service-a
+  template:
+    metadata:
+      labels:
+        app: service-a
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "service-a"
+        dapr.io/config: dapr-crud-app
+        dapr.io/log-as-json: "false"
+        dapr.io/enable-api-logging: "true"
+        dapr.io/log-level: "debug"
+    spec:
+      containers:
+      - name: service-a
+        image: docker.io/famargon/service-a-877a6ee3f81467ac45450b736bd87aad:latest
+        imagePullPolicy: Always

@@ -1,0 +1,26 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: publisher-app
+  template:
+    metadata:
+      labels:
+        app: publisher-app
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "publisher-app"
+        dapr.io/app-port: "8080"
+        dapr.io/config: dapr-crud-app
+        dapr.io/app-protocol: grpc
+        dapr.io/log-as-json: "true"
+    spec:
+      containers:
+      - name: app
+        image: docker.io/famargon/publisher-a4c0fe366e31cbd3ec239beea5bde24a:latest
+        imagePullPolicy: Always

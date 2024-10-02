@@ -1,0 +1,29 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: redis-master.crud-app:6379
+  - name: redisPassword
+    secretKeyRef:
+      name: redis
+      key: redis-password
+  - name: allowedTopics
+    value: "todos,events"
+  - name: publishingScopes
+    value: "crud-app=todos;publisher-app=events;service-b=events"
+  - name: subscriptionScopes
+    value: "crud-app=;timeline-app=todos;consumer-app=events;service-c=events"
+  # # scopes??
+scopes:
+  - crud-app
+  - timeline-app
+  - consumer-app
+  - publisher-app
+  - service-b
+  - service-c
+  

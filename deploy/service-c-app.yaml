@@ -1,0 +1,26 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-c
+spec:
+  selector:
+    matchLabels:
+      app: service-c
+  template:
+    metadata:
+      labels:
+        app: service-c
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "service-c"
+        dapr.io/app-port: "8080"
+        dapr.io/config: dapr-crud-app
+        dapr.io/log-as-json: "false"
+        dapr.io/enable-api-logging: "true"
+        dapr.io/log-level: "debug"
+    spec:
+      containers:
+      - name: service-c
+        image: docker.io/famargon/service-c-937d491fd6283fe1f05c1ba4e2771ba0:latest
+        imagePullPolicy: Always
