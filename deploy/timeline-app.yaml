@@ -15,7 +15,7 @@ spec:
         dapr.io/enabled: "true"
         dapr.io/app-id: "timeline-app"
         dapr.io/app-port: "8080"
-        dapr.io/config: dapr-crud-app
+        dapr.io/config: dapr-go-crud-app
         dapr.io/sidecar-listen-addresses: "0.0.0.0"
         dapr.io/log-as-json: "true"
     spec:

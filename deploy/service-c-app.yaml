@@ -15,7 +15,7 @@ spec:
         dapr.io/enabled: "true"
         dapr.io/app-id: "service-c"
         dapr.io/app-port: "8080"
-        dapr.io/config: dapr-crud-app
+        dapr.io/config: dapr-go-crud-app
         dapr.io/log-as-json: "false"
         dapr.io/enable-api-logging: "true"
         dapr.io/log-level: "debug"

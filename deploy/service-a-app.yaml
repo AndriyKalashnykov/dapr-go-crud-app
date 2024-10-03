@@ -14,7 +14,7 @@ spec:
       annotations:
         dapr.io/enabled: "true"
         dapr.io/app-id: "service-a"
-        dapr.io/config: dapr-crud-app
+        dapr.io/config: dapr-go-crud-app
         dapr.io/log-as-json: "false"
         dapr.io/enable-api-logging: "true"
         dapr.io/log-level: "debug"
