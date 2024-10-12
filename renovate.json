@@ -5,6 +5,10 @@
     ":dependencyDashboard",
     "schedule:daily"
   ],
+  "enabledManagers": [
+    "github-actions",
+    "gomod"
+  ],
   "postUpdateOptions": [
     "gomodTidy"
   ],
