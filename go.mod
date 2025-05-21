@@ -5,12 +5,11 @@ go 1.24.0
 require (
 	github.com/cloudevents/sdk-go/v2 v2.16.0
 	github.com/dapr/go-sdk v1.12.0
-	github.com/gin-gonic/gin v1.10.0
+	github.com/gin-gonic/gin v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/kamva/mgm/v3 v3.5.0
 	github.com/peterbourgon/ff/v3 v3.4.0
-	go.mongodb.org/mongo-driver v1.14.0
-	go.mongodb.org/mongo-driver/v2 v2.2.1
+	go.mongodb.org/mongo-driver v1.17.3
 )
 
 require (
