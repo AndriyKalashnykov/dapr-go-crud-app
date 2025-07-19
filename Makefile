@@ -26,7 +26,7 @@ rollout:
 	kubectl delete pod -l app=timeline-app
 
 crud-app-logs:
-	k logs -l app=crud-app -c crud-app
+	kubectl logs -l app=crud-app -c crud-app
 
 run-mongo:
 #-e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=admin

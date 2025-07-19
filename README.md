@@ -12,4 +12,4 @@ make deploy
 
 ### References
 
-[Original crude app](https://github.com/famarting/crud-app)
+* [Original crude app](https://github.com/famarting/crud-app)
