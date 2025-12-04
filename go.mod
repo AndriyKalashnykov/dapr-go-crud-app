@@ -1,6 +1,6 @@
 module github.com/AndriyKalashnykov/dapr-go-crud-app
 
-go 1.25.4
+go 1.25.5
 
 require (
 	github.com/cloudevents/sdk-go/v2 v2.16.2
