@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/kamva/mgm/v3 v3.5.0
 	github.com/peterbourgon/ff/v3 v3.4.0
-	go.mongodb.org/mongo-driver v1.17.7
+	go.mongodb.org/mongo-driver v1.17.8
 )
 
 require (
