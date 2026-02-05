@@ -2,31 +2,31 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices",
-    ":approveMajorUpdates",
     ":label(dependencies)",
     ":semanticCommitType(chore)",
     "docker:pinDigests",
     "helpers:pinGitHubActionDigests",
     ":dependencyDashboard",
     "schedule:daily",
-    ":automergePatch",
     ":automergePr",
     ":automergeRequireAllStatusChecks",
     ":prConcurrentLimitNone",
-    ":separatePatchReleases",
     "replacements:all",
     "workarounds:all"
   ],
   "postUpdateOptions": [
     "gomodTidy"
   ],
-  "commitMessagePrefix": "chore(all): ",
+  "commitMessagePrefix": "chore({{depType}}): ",
   "commitMessageAction": "update",
   "commitBody": "Signed-off-by: Renovate Bot <bot@renovateapp.com>",
   "platformAutomerge": true,
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
-  "groupName": "all",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  },
   "force": {
     "constraints": {
       "go": "< 2.0"
@@ -37,28 +37,69 @@
   ],
   "packageRules": [
     {
-      "description": "Automerge non-major updates",
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "matchDatasources": ["docker", "golang-version"],
-      "matchPackageNames": ["go", "golang"],
+      "description": "Security updates - immediate automerge",
+      "matchDatasources": ["go"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "vulnerabilitySeverity": ["HIGH", "CRITICAL"],
+      "labels": ["security", "dependencies"],
       "automerge": true,
       "automergeType": "pr",
-      "platformAutomerge": true
+      "platformAutomerge": true,
+      "minimumReleaseAge": "0 days",
+      "prPriority": 10
     },
     {
-      "description": "Enforce bump range strategy",
+      "description": "Go runtime updates",
       "matchDatasources": ["docker", "golang-version"],
       "matchPackageNames": ["go", "golang"],
-      "rangeStrategy": "bump"
+      "groupName": "Go runtime",
+      "rangeStrategy": "bump",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days"
     },
     {
-      "matchManagers": [
-        "github-actions"
-      ],
-      "groupName": "Pipeline dependencies"
+      "description": "GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Dapr ecosystem",
+      "matchPackagePrefixes": ["github.com/dapr/"],
+      "groupName": "Dapr dependencies",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "MongoDB driver",
+      "matchPackagePatterns": ["^go\\.mongodb\\.org/mongo-driver"],
+      "groupName": "MongoDB driver",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Minor and patch updates",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Major updates - require review",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "major-update"],
+      "prPriority": 5
     }
   ]
 }
