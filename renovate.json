@@ -25,7 +25,7 @@
   "prHourlyLimit": 0,
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["security"]
+    "addLabels": ["security"]
   },
   "force": {
     "constraints": {
