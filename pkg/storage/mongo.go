@@ -2,24 +2,17 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/AndriyKalashnykov/dapr-go-crud-app/pkg/todos"
 	"github.com/google/uuid"
-	"github.com/kamva/mgm/v3"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-func init() {
-	// Setup the mgm default config
-	err := mgm.SetDefaultConfig(nil, "mgm_lab", options.Client().ApplyURI("mongodb://root:12345@localhost:27017"))
-	if err != nil {
-		panic(err)
-	}
-}
-
 type MongoStorage struct {
-	coll     *mgm.Collection
+	coll     *mongo.Collection
 	maxItems int
 }
 
@@ -27,25 +20,34 @@ var mongoImpl TodosStorage = &MongoStorage{}
 
 func (s *MongoStorage) Create(todo *todos.Todo) error {
 	todo.Id = uuid.New().String()
-	count, err := s.coll.CountDocuments(context.Background(), bson.D{}, nil)
+	todo.CreatedAt = time.Now()
+	todo.UpdatedAt = time.Now()
+
+	count, err := s.coll.CountDocuments(context.Background(), bson.D{})
 	if err != nil {
 		return err
 	}
 	if count >= int64(s.maxItems) {
 		// set the sort to -1 to sort descending and get the last item for deletion
-		deleteOptions := &options.FindOneAndDeleteOptions{}
-		deleteOptions = deleteOptions.SetSort(bson.D{{"_id", -1}})
+		deleteOptions := options.FindOneAndDelete().SetSort(bson.D{{"_id", -1}})
 		s.coll.FindOneAndDelete(context.Background(), bson.D{}, deleteOptions)
 	}
-	return s.coll.Create(todo)
+	_, err = s.coll.InsertOne(context.Background(), todo)
+	return err
 }
 
 func (s *MongoStorage) Update(todo *todos.Todo) error {
-	return nil
+	todo.UpdatedAt = time.Now()
+	filter := bson.D{{"todoId", todo.Id}}
+	update := bson.D{{"$set", todo}}
+	_, err := s.coll.UpdateOne(context.Background(), filter, update)
+	return err
 }
 
 func (s *MongoStorage) Delete(todo *todos.Todo) error {
-	return nil
+	filter := bson.D{{"todoId", todo.Id}}
+	_, err := s.coll.DeleteOne(context.Background(), filter)
+	return err
 }
 
 func (s *MongoStorage) ListAll() ([]*todos.Todo, error) {
@@ -62,13 +64,22 @@ func (s *MongoStorage) ListAll() ([]*todos.Todo, error) {
 }
 
 func NewMongoStorage(connStr string, maxItems int) *MongoStorage {
-	err := mgm.SetDefaultConfig(nil, "mgm_lab", options.Client().ApplyURI(connStr))
+	ctx := context.Background()
+	client, err := mongo.Connect(options.Client().ApplyURI(connStr))
 	if err != nil {
 		panic(err)
 	}
 
+	// Ping the database to verify connection
+	if err := client.Ping(ctx, nil); err != nil {
+		panic(err)
+	}
+
+	db := client.Database("mgm_lab")
+	coll := db.Collection("todos")
+
 	return &MongoStorage{
-		coll:     mgm.Coll(&todos.Todo{}),
+		coll:     coll,
 		maxItems: maxItems,
 	}
 }

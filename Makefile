@@ -5,21 +5,31 @@ test:
 	@go test ./...
 
 build:
-	go build -o ./bin/app ./cmd/app.go
+	go build -o ./.bin/app ./cmd/app.go
+	go build -o ./.bin/consumer ./cmd/consumer
+	go build -o ./.bin/datagen ./cmd/datagen
+	go build -o ./.bin/dummy ./cmd/dummy
+	go build -o ./.bin/errorgen ./cmd/errorgen
+	go build -o ./.bin/publisher ./cmd/publisher
+	go build -o ./.bin/service-a ./cmd/service-a
+	go build -o ./.bin/service-b ./cmd/service-b
+	go build -o ./.bin/service-c ./cmd/service-c
+	go build -o ./.bin/timeline ./cmd/timeline
 
 update:
 	@go get -u ./...; go mod tidy
 
 push:
 	ko publish ./cmd
-	ko publish ./cmd/timeline
-	ko publish ./cmd/datagen
-	ko publish ./cmd/errorgen
 	ko publish ./cmd/consumer
+	ko publish ./cmd/datagen
+	ko publish ./cmd/dummy
+	ko publish ./cmd/errorgen
 	ko publish ./cmd/publisher
 	ko publish ./cmd/service-a
 	ko publish ./cmd/service-b
 	ko publish ./cmd/service-c
+	ko publish ./cmd/timeline
 
 rollout:
 	kubectl delete pod -l app=crud-app

@@ -1,12 +1,17 @@
 package todos
 
-import "github.com/kamva/mgm/v3"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+)
 
 type Todo struct {
-	// DefaultModel adds _id, created_at and updated_at fields to the Model
-	mgm.DefaultModel `bson:",inline"`
-	Id               string `form:"id" json:"id" bson:"todoId"`
-	Text             string `form:"text" json:"text" binding:"required" bson:"text"`
-	Done             string `form:"done" json:"done" bson:"done"`
-	Deleted          string `form:"deleted" json:"deleted" bson:"deleted"`
+	ID        bson.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	CreatedAt time.Time     `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time     `bson:"updated_at" json:"updated_at"`
+	Id        string        `form:"id" json:"id" bson:"todoId"`
+	Text      string        `form:"text" json:"text" binding:"required" bson:"text"`
+	Done      string        `form:"done" json:"done" bson:"done"`
+	Deleted   string        `form:"deleted" json:"deleted" bson:"deleted"`
 }
