@@ -1,10 +1,10 @@
 module github.com/AndriyKalashnykov/dapr-go-crud-app
 
-go 1.25.7
+go 1.26.0
 
 require (
 	github.com/cloudevents/sdk-go/v2 v2.16.2
-	github.com/dapr/go-sdk v1.14.1
+	github.com/dapr/go-sdk v1.14.2
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/peterbourgon/ff/v3 v3.4.0
@@ -19,7 +19,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/dapr/dapr v1.17.0 // indirect
-	github.com/dapr/durabletask-go v0.11.0 // indirect
+	github.com/dapr/durabletask-go v0.11.3 // indirect
 	github.com/dapr/kit v0.17.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
