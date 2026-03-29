@@ -3,6 +3,7 @@
 # Tool versions
 KO_VERSION        := 0.17.1
 GOLANGCI_VERSION  := 1.64.8
+NVM_VERSION       := 0.40.4
 
 export KO_DOCKER_REPO := docker.io/andriykalashnykov
 
@@ -124,7 +125,21 @@ release:
 	@git tag -a $(VERSION) -m "Release $(VERSION)"
 	@echo "Tagged $(VERSION). Run 'git push origin $(VERSION)' to publish."
 
+#renovate-bootstrap: @ Install nvm and npm for Renovate
+renovate-bootstrap:
+	@command -v node >/dev/null 2>&1 || { \
+		echo "Installing nvm $(NVM_VERSION)..."; \
+		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
+		export NVM_DIR="$$HOME/.nvm"; \
+		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
+		nvm install --lts; \
+	}
+
+#renovate-validate: @ Validate Renovate configuration
+renovate-validate: renovate-bootstrap
+	@npx --yes renovate --platform=local
+
 #ci: @ Run full CI pipeline locally (lint, test, build)
 ci: lint test build
 
-.PHONY: help deps test build clean lint run update push rollout app-logs mongo-run dapr-run zipkin-setup zipkin-deploy redis-deploy redis-deploy-replicated deploy apply release ci
+.PHONY: help deps test build clean lint run update push rollout app-logs mongo-run dapr-run zipkin-setup zipkin-deploy redis-deploy redis-deploy-replicated deploy apply release renovate-bootstrap renovate-validate ci
