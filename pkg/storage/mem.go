@@ -10,7 +10,6 @@ type InMemoryStorage struct {
 	maxItems int
 }
 
-var impl TodosStorage = &InMemoryStorage{}
 
 func (s *InMemoryStorage) Create(todo *todos.Todo) error {
 	todo.Id = uuid.New().String()

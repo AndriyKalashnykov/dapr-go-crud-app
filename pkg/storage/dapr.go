@@ -20,7 +20,6 @@ var pubsubName string = "pubsub"
 var pubsubTopic string = "todos"
 var indexKey string = "index"
 
-var daprImpl TodosStorage = &DaprStorage{}
 
 func (s *DaprStorage) Create(todo *todos.Todo) error {
 	todo.Id = uuid.New().String()
@@ -67,7 +66,7 @@ func (s *DaprStorage) getIndexState() ([]string, error) {
 	if index == nil || index.Value == nil {
 		return make([]string, 0), nil
 	}
-	var a []string = make([]string, 0)
+	a := make([]string, 0)
 	err = json.Unmarshal(index.Value, &a)
 	if err != nil {
 		return nil, fmt.Errorf("index json deserialization: %w", err)
@@ -100,7 +99,7 @@ func (s *DaprStorage) Delete(todo *todos.Todo) error {
 		return err
 	}
 
-	var newtodos []string = make([]string, 0)
+	newtodos := make([]string, 0)
 	for _, t := range allTodos {
 		if t != todo.Id {
 			newtodos = append(newtodos, t)
@@ -149,10 +148,10 @@ func (s *DaprStorage) ListAll() ([]*todos.Todo, error) {
 	if err != nil {
 		return nil, err
 	}
-	var all []*todos.Todo = []*todos.Todo{}
+	all := []*todos.Todo{}
 
 	for _, item := range items {
-		var t todos.Todo = todos.Todo{}
+		t := todos.Todo{}
 		if err := json.Unmarshal(item.Value, &t); err != nil {
 			return nil, err
 		}

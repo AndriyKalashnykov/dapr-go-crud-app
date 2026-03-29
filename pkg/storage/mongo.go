@@ -16,7 +16,6 @@ type MongoStorage struct {
 	maxItems int
 }
 
-var mongoImpl TodosStorage = &MongoStorage{}
 
 func (s *MongoStorage) Create(todo *todos.Todo) error {
 	todo.Id = uuid.New().String()
@@ -55,7 +54,7 @@ func (s *MongoStorage) ListAll() ([]*todos.Todo, error) {
 	if err != nil {
 		return nil, err
 	}
-	var all []*todos.Todo = []*todos.Todo{}
+	all := []*todos.Todo{}
 	err = cursor.All(context.Background(), &all)
 	if err != nil {
 		return nil, err

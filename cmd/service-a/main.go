@@ -3,16 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	dapr "github.com/dapr/go-sdk/client"
 )
-
-var client dapr.Client
 
 func main() {
 	fmt.Println("starting service A app")
@@ -66,7 +62,7 @@ func makeRequest() {
 		return
 	}
 
-	result, err := ioutil.ReadAll(response.Body)
+	result, err := io.ReadAll(response.Body)
 	if err != nil {
 		fmt.Print(err.Error())
 		return

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -18,9 +18,9 @@ import (
 func main() {
 
 	serveFlagSet := flag.NewFlagSet("timeline app serve", flag.ExitOnError)
-	var serverPort *int = serveFlagSet.Int("port", 8080, "port for the server to listen to")
+	serverPort := serveFlagSet.Int("port", 8080, "port for the server to listen to")
 
-	var tl timeline.Timeline = timeline.New()
+	tl := timeline.New()
 
 	engine := gin.Default()
 
@@ -36,7 +36,7 @@ func main() {
 
 		var bodyBytes []byte
 		if c.Request.Body != nil {
-			bodyBytes, _ = ioutil.ReadAll(c.Request.Body)
+			bodyBytes, _ = io.ReadAll(c.Request.Body)
 		}
 
 		fmt.Println("Received event", string(bodyBytes))

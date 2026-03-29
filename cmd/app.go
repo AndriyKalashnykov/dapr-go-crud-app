@@ -14,10 +14,10 @@ import (
 func main() {
 
 	serveFlagSet := flag.NewFlagSet("app serve", flag.ExitOnError)
-	var serverPort *int = serveFlagSet.Int("port", 8080, "port for the server to listen to")
-	var connStr *string = serveFlagSet.String("connStr", "mongodb://localhost:27017", "connection string for storage")
-	var maxItems *int = serveFlagSet.Int("maxItems", 20, "maximum numbers of items to store")
-	var cleanupIntervalSeconds *int = serveFlagSet.Int("cleanupIntervalSeconds", 600, "seconds to wait between cleanup runs")
+	serverPort := serveFlagSet.Int("port", 8080, "port for the server to listen to")
+	connStr := serveFlagSet.String("connStr", "mongodb://localhost:27017", "connection string for storage")
+	maxItems := serveFlagSet.Int("maxItems", 20, "maximum numbers of items to store")
+	cleanupIntervalSeconds := serveFlagSet.Int("cleanupIntervalSeconds", 600, "seconds to wait between cleanup runs")
 
 	serve := &ffcli.Command{
 		Name:     "serve",
@@ -27,12 +27,13 @@ func main() {
 
 			var s storage.TodosStorage
 
-			if *connStr == "" || *connStr == "mem" {
+			switch *connStr {
+			case "", "mem":
 				fmt.Println("Using inmemory storage")
 				s = storage.NewInMemoryStorage(*maxItems)
-			} else if *connStr == "dapr" {
+			case "dapr":
 				s = storage.NewDaprStorage(*maxItems)
-			} else {
+			default:
 				s = storage.NewMongoStorage(*connStr, *maxItems)
 			}
 
