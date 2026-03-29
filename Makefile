@@ -9,6 +9,21 @@ KO_VERSION        := 0.18.0
 ACT_VERSION       := 0.2.86
 NVM_VERSION       := 0.40.4
 
+# === Go Version Management (via gvm) ===
+# Parse all unique Go versions from every go.mod in the project
+GO_VERSIONS := $(shell find . -name 'go.mod' -exec grep -oP '^go \K[0-9.]+' {} \; | sort -uV)
+# Primary Go version from root go.mod
+GO_VERSION  := $(shell grep -oP '^go \K[0-9.]+' go.mod)
+
+# Helper: run a command under the correct Go version
+# In CI, actions/setup-go provides Go directly — gvm is not needed.
+# Locally, gvm sets GOROOT/GOPATH/PATH in a subshell (does not persist across recipe lines).
+# go-exec detects which environment we're in and wraps commands accordingly.
+HAS_GVM := $(shell command -v gvm >/dev/null 2>&1 && echo true || echo false)
+define go-exec
+$(if $(filter true,$(HAS_GVM)),bash -c '. $$GVM_ROOT/scripts/gvm && gvm use go$(GO_VERSION) >/dev/null && $(1)',bash -c '$(1)')
+endef
+
 export KO_DOCKER_REPO := docker.io/andriykalashnykov
 
 APP_NAMESPACE ?= crud-app
@@ -21,12 +36,36 @@ help:
 
 #deps: @ Check and install required dependencies
 deps:
-	@command -v go >/dev/null 2>&1 || { echo "Error: Go is required. Install from https://go.dev/dl/"; exit 1; }
+	@if [ "$(HAS_GVM)" = "true" ]; then \
+		for v in $(GO_VERSIONS); do \
+			bash -c '. $$GVM_ROOT/scripts/gvm && gvm list' 2>/dev/null | grep -q "go$$v" || { \
+				echo "Installing Go $$v via gvm..."; \
+				bash -c '. $$GVM_ROOT/scripts/gvm && gvm install go'"$$v"' -B'; \
+			}; \
+		done; \
+	else \
+		command -v go >/dev/null 2>&1 || { echo "Error: Go required. Install gvm from https://github.com/moovweb/gvm or Go from https://go.dev/dl/"; exit 1; }; \
+	fi
 	@command -v docker >/dev/null 2>&1 || { echo "Error: Docker is required. Install from https://www.docker.com/"; exit 1; }
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint v$(GOLANGCI_VERSION)..."; \
-		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_VERSION); }
-	@command -v ko >/dev/null 2>&1 || { echo "Installing ko v$(KO_VERSION)..."; \
-		go install github.com/google/ko@v$(KO_VERSION); }
+	@$(call go-exec,command -v golangci-lint) >/dev/null 2>&1 || { echo "Installing golangci-lint v$(GOLANGCI_VERSION)..."; \
+		$(call go-exec,go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_VERSION)); }
+	@$(call go-exec,command -v ko) >/dev/null 2>&1 || { echo "Installing ko v$(KO_VERSION)..."; \
+		$(call go-exec,go install github.com/google/ko@v$(KO_VERSION)); }
+	@command -v node >/dev/null 2>&1 || { \
+		echo "Installing nvm $(NVM_VERSION)..."; \
+		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
+		export NVM_DIR="$$HOME/.nvm"; \
+		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
+		nvm install --lts; \
+	}
+
+#deps-check: @ Show required Go versions and gvm status
+deps-check:
+	@echo "Go versions required: $(GO_VERSIONS)"
+	@echo "Primary Go version:   $(GO_VERSION)"
+	@command -v gvm >/dev/null 2>&1 && { \
+		bash -c '. $$GVM_ROOT/scripts/gvm && gvm list'; \
+	} || echo "gvm not installed — install from https://github.com/moovweb/gvm"
 
 #deps-act: @ Install act for local CI
 deps-act: deps
@@ -36,20 +75,20 @@ deps-act: deps
 
 #test: @ Run tests
 test: deps
-	@go test ./...
+	@$(call go-exec,go test ./...)
 
 #build: @ Build all binaries
 build: deps
-	@go build -o ./.bin/app ./cmd/app.go
-	@go build -o ./.bin/consumer ./cmd/consumer
-	@go build -o ./.bin/datagen ./cmd/datagen
-	@go build -o ./.bin/dummy ./cmd/dummy
-	@go build -o ./.bin/errorgen ./cmd/errorgen
-	@go build -o ./.bin/publisher ./cmd/publisher
-	@go build -o ./.bin/service-a ./cmd/service-a
-	@go build -o ./.bin/service-b ./cmd/service-b
-	@go build -o ./.bin/service-c ./cmd/service-c
-	@go build -o ./.bin/timeline ./cmd/timeline
+	@$(call go-exec,go build -o ./.bin/app ./cmd/app.go)
+	@$(call go-exec,go build -o ./.bin/consumer ./cmd/consumer)
+	@$(call go-exec,go build -o ./.bin/datagen ./cmd/datagen)
+	@$(call go-exec,go build -o ./.bin/dummy ./cmd/dummy)
+	@$(call go-exec,go build -o ./.bin/errorgen ./cmd/errorgen)
+	@$(call go-exec,go build -o ./.bin/publisher ./cmd/publisher)
+	@$(call go-exec,go build -o ./.bin/service-a ./cmd/service-a)
+	@$(call go-exec,go build -o ./.bin/service-b ./cmd/service-b)
+	@$(call go-exec,go build -o ./.bin/service-c ./cmd/service-c)
+	@$(call go-exec,go build -o ./.bin/timeline ./cmd/timeline)
 
 #clean: @ Remove build artifacts
 clean:
@@ -57,29 +96,28 @@ clean:
 
 #lint: @ Run linters
 lint: deps
-	@golangci-lint run ./...
+	@$(call go-exec,golangci-lint run ./...)
 
 #run: @ Run the main app locally
 run: deps
-	@go run ./cmd/app.go serve -connStr dapr
+	@$(call go-exec,go run ./cmd/app.go serve -connStr dapr)
 
 #update: @ Update Go dependencies
-update:
-	@go get -u ./...
-	@go mod tidy
+update: deps
+	@$(call go-exec,go get -u ./... && go mod tidy)
 
 #push: @ Publish all images with ko
 push: deps
-	@ko publish ./cmd
-	@ko publish ./cmd/consumer
-	@ko publish ./cmd/datagen
-	@ko publish ./cmd/dummy
-	@ko publish ./cmd/errorgen
-	@ko publish ./cmd/publisher
-	@ko publish ./cmd/service-a
-	@ko publish ./cmd/service-b
-	@ko publish ./cmd/service-c
-	@ko publish ./cmd/timeline
+	@$(call go-exec,ko publish ./cmd)
+	@$(call go-exec,ko publish ./cmd/consumer)
+	@$(call go-exec,ko publish ./cmd/datagen)
+	@$(call go-exec,ko publish ./cmd/dummy)
+	@$(call go-exec,ko publish ./cmd/errorgen)
+	@$(call go-exec,ko publish ./cmd/publisher)
+	@$(call go-exec,ko publish ./cmd/service-a)
+	@$(call go-exec,ko publish ./cmd/service-b)
+	@$(call go-exec,ko publish ./cmd/service-c)
+	@$(call go-exec,ko publish ./cmd/timeline)
 
 #rollout: @ Restart app pods
 rollout:
@@ -116,7 +154,7 @@ redis-deploy-replicated:
 	@helm upgrade --install redis bitnami/redis -n ${APP_NAMESPACE} --set replica.replicaCount=1
 
 #deploy: @ Deploy full stack to Kubernetes
-deploy:
+deploy: push
 	@kubectl create namespace ${APP_NAMESPACE} || true
 	@$(MAKE) redis-deploy
 	@kubectl apply -f .dapr/configuration.yaml -n ${APP_NAMESPACE}
@@ -142,18 +180,8 @@ release:
 		git push && \
 		echo "Done."'
 
-#renovate-bootstrap: @ Install nvm and npm for Renovate
-renovate-bootstrap:
-	@command -v node >/dev/null 2>&1 || { \
-		echo "Installing nvm $(NVM_VERSION)..."; \
-		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
-		export NVM_DIR="$$HOME/.nvm"; \
-		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
-		nvm install --lts; \
-	}
-
 #renovate-validate: @ Validate Renovate configuration
-renovate-validate: renovate-bootstrap
+renovate-validate: deps
 	@npx --yes renovate --platform=local
 
 #ci: @ Run full CI pipeline locally
@@ -165,6 +193,6 @@ ci-run: deps-act
 	@act push --container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 
-.PHONY: help deps deps-act test build clean lint run update push rollout app-logs \
+.PHONY: help deps deps-check deps-act test build clean lint run update push rollout app-logs \
 	mongo-run dapr-run zipkin-setup zipkin-deploy redis-deploy redis-deploy-replicated \
-	deploy apply release renovate-bootstrap renovate-validate ci ci-run
+	deploy apply release renovate-validate ci ci-run

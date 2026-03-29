@@ -36,13 +36,14 @@ deploy/        - Kubernetes manifests
 ## Build & Test
 
 ```bash
-make help      # List all available targets
-make deps      # Check and install required dependencies
-make build     # Build all binaries
-make test      # Run tests
-make lint      # Run golangci-lint
-make ci        # Full CI pipeline (deps, lint, test, build)
-make clean     # Remove build artifacts
+make help       # List all available targets
+make deps       # Check and install required dependencies (uses gvm for Go)
+make deps-check # Show required Go versions and gvm status
+make build      # Build all binaries
+make test       # Run tests
+make lint       # Run golangci-lint
+make ci         # Full CI pipeline (deps, lint, test, build)
+make clean      # Remove build artifacts
 ```
 
 ## Run Locally
@@ -67,9 +68,9 @@ make apply        # Apply Dapr config and deployments
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push to `main`, tags `v*`, and pull requests:
 1. Checkout with full history
 2. Setup Go from `go.mod`
-3. Build (`make build`)
-4. Lint (`make lint`)
-5. Test (`make test`)
+3. Lint (`make lint`)
+4. Test (`make test`)
+5. Build (`make build`)
 
 A separate cleanup workflow (`.github/workflows/cleanup-runs.yml`) removes old workflow runs weekly.
 
@@ -77,11 +78,14 @@ Run CI locally: `make ci` (local pipeline) or `make ci-run` (GitHub Actions via 
 
 ## Dependencies
 
-- go, docker (check with `make deps`)
+- gvm (Go Version Manager) — manages Go versions locally; `make deps` auto-installs required versions
+- docker (check with `make deps`)
 - golangci-lint, ko (auto-installed by `make deps`)
 - kubectl for Kubernetes deployment
 - Helm for Redis deployment
 - Dapr CLI for local development
+
+In CI, `actions/setup-go` provides Go — gvm is not needed.
 
 ## Skills
 

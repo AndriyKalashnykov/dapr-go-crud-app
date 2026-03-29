@@ -19,7 +19,7 @@ make run       # start the main app locally (requires Dapr)
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [Go](https://go.dev/dl/) | 1.26+ | Language runtime and compiler |
+| [gvm](https://github.com/moovweb/gvm) | latest | Go Version Manager (auto-installs required Go versions) |
 | [GNU Make](https://www.gnu.org/software/make/) | 3.81+ | Build orchestration |
 | [Docker](https://www.docker.com/) | latest | Container runtime |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | latest | Kubernetes CLI |
@@ -82,7 +82,8 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make deps` | Check and install required dependencies |
+| `make deps` | Check and install required dependencies (uses gvm for Go) |
+| `make deps-check` | Show required Go versions and gvm status |
 | `make release` | Create and push a new tag |
 | `make renovate-validate` | Validate Renovate configuration |
 
@@ -92,7 +93,7 @@ GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
 
 | Job | Triggers | Steps |
 |-----|----------|-------|
-| **ci** | push (main), PR, tags | Build, Lint, Test |
+| **ci** | push (main), PR, tags | Lint, Test, Build |
 
 [Renovate](https://docs.renovatebot.com/) keeps dependencies up to date with platform automerge enabled.
 
