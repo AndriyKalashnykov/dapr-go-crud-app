@@ -1,8 +1,12 @@
 .DEFAULT_GOAL := help
 
-# Tool versions
-KO_VERSION        := 0.17.1
-GOLANGCI_VERSION  := 1.64.8
+APP_NAME       := dapr-go-crud-app
+CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+
+# === Tool Versions (pinned) ===
+GOLANGCI_VERSION  := 2.1.6
+KO_VERSION        := 0.18.0
+ACT_VERSION       := 0.2.86
 NVM_VERSION       := 0.40.4
 
 export KO_DOCKER_REPO := docker.io/andriykalashnykov
@@ -13,22 +17,29 @@ APP_NAMESPACE ?= crud-app
 help:
 	@echo "Usage: make COMMAND"
 	@echo "Commands :"
-	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-20s\033[0m - %s\n", $$1, $$2}'
+	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-30s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check required dependencies
+#deps: @ Check and install required dependencies
 deps:
-	@command -v go >/dev/null 2>&1 || { echo "go is not installed"; exit 1; }
-	@command -v docker >/dev/null 2>&1 || { echo "docker is not installed"; exit 1; }
-	@command -v kubectl >/dev/null 2>&1 || { echo "kubectl is not installed"; exit 1; }
-	@command -v ko >/dev/null 2>&1 || { echo "ko is not installed"; exit 1; }
-	@echo "All dependencies are installed"
+	@command -v go >/dev/null 2>&1 || { echo "Error: Go is required. Install from https://go.dev/dl/"; exit 1; }
+	@command -v docker >/dev/null 2>&1 || { echo "Error: Docker is required. Install from https://www.docker.com/"; exit 1; }
+	@command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint v$(GOLANGCI_VERSION)..."; \
+		go install github.com/golangci/golangci-lint/cmd/golangci-lint@v$(GOLANGCI_VERSION); }
+	@command -v ko >/dev/null 2>&1 || { echo "Installing ko v$(KO_VERSION)..."; \
+		go install github.com/google/ko@v$(KO_VERSION); }
+
+#deps-act: @ Install act for local CI
+deps-act: deps
+	@command -v act >/dev/null 2>&1 || { echo "Installing act $(ACT_VERSION)..."; \
+		curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
+	}
 
 #test: @ Run tests
-test:
+test: deps
 	@go test ./...
 
 #build: @ Build all binaries
-build:
+build: deps
 	@go build -o ./.bin/app ./cmd/app.go
 	@go build -o ./.bin/consumer ./cmd/consumer
 	@go build -o ./.bin/datagen ./cmd/datagen
@@ -45,11 +56,11 @@ clean:
 	@rm -rf ./.bin
 
 #lint: @ Run linters
-lint:
+lint: deps
 	@golangci-lint run ./...
 
 #run: @ Run the main app locally
-run:
+run: deps
 	@go run ./cmd/app.go serve -connStr dapr
 
 #update: @ Update Go dependencies
@@ -58,7 +69,7 @@ update:
 	@go mod tidy
 
 #push: @ Publish all images with ko
-push:
+push: deps
 	@ko publish ./cmd
 	@ko publish ./cmd/consumer
 	@ko publish ./cmd/datagen
@@ -118,12 +129,18 @@ apply:
 	@kubectl apply -f .dapr/components -n ${APP_NAMESPACE}
 	@kubectl apply -f deploy -n ${APP_NAMESPACE}
 
-#release: @ Create a release tag (usage: make release VERSION=v1.2.3)
+#release: @ Create and push a new tag
 release:
-	@if [ -z "$(VERSION)" ]; then echo "VERSION is required (e.g. make release VERSION=v1.2.3)"; exit 1; fi
-	@echo "$(VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "VERSION must match semver pattern vX.Y.Z"; exit 1; }
-	@git tag -a $(VERSION) -m "Release $(VERSION)"
-	@echo "Tagged $(VERSION). Run 'git push origin $(VERSION)' to publish."
+	@bash -c 'read -p "New tag (current: $(CURRENTTAG)): " newtag && \
+		echo "$$newtag" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+$$" || { echo "Error: Tag must match vN.N.N"; exit 1; } && \
+		echo -n "Create and push $$newtag? [y/N] " && read ans && [ "$${ans:-N}" = y ] && \
+		echo $$newtag > ./version.txt && \
+		git add -A && \
+		git commit -a -s -m "Cut $$newtag release" && \
+		git tag $$newtag && \
+		git push origin $$newtag && \
+		git push && \
+		echo "Done."'
 
 #renovate-bootstrap: @ Install nvm and npm for Renovate
 renovate-bootstrap:
@@ -139,7 +156,15 @@ renovate-bootstrap:
 renovate-validate: renovate-bootstrap
 	@npx --yes renovate --platform=local
 
-#ci: @ Run full CI pipeline locally (lint, test, build)
-ci: lint test build
+#ci: @ Run full CI pipeline locally
+ci: deps lint test build
+	@echo "CI passed."
 
-.PHONY: help deps test build clean lint run update push rollout app-logs mongo-run dapr-run zipkin-setup zipkin-deploy redis-deploy redis-deploy-replicated deploy apply release renovate-bootstrap renovate-validate ci
+#ci-run: @ Run GitHub Actions workflow locally using act
+ci-run: deps-act
+	@act push --container-architecture linux/amd64 \
+		--artifact-server-path /tmp/act-artifacts
+
+.PHONY: help deps deps-act test build clean lint run update push rollout app-logs \
+	mongo-run dapr-run zipkin-setup zipkin-deploy redis-deploy redis-deploy-replicated \
+	deploy apply release renovate-bootstrap renovate-validate ci ci-run
