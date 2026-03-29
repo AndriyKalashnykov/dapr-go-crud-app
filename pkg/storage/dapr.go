@@ -153,7 +153,9 @@ func (s *DaprStorage) ListAll() ([]*todos.Todo, error) {
 
 	for _, item := range items {
 		var t todos.Todo = todos.Todo{}
-		json.Unmarshal(item.Value, &t)
+		if err := json.Unmarshal(item.Value, &t); err != nil {
+			return nil, err
+		}
 		all = append(all, &t)
 	}
 	return all, nil

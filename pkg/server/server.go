@@ -92,7 +92,9 @@ func (server *Server) Start() {
 		c.JSON(200, json)
 	})
 
-	engine.Run("0.0.0.0:" + strconv.Itoa(server.Port))
+	if err := engine.Run("0.0.0.0:" + strconv.Itoa(server.Port)); err != nil {
+		panic(err)
+	}
 
 }
 

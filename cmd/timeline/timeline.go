@@ -71,5 +71,7 @@ func main() {
 	})
 
 	fmt.Println("Starting timeline server on port %n", *serverPort)
-	engine.Run("0.0.0.0:" + strconv.Itoa(*serverPort))
+	if err := engine.Run("0.0.0.0:" + strconv.Itoa(*serverPort)); err != nil {
+		panic(err)
+	}
 }

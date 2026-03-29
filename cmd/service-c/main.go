@@ -18,13 +18,15 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	s.AddTopicEventHandler(&common.Subscription{
+	if err = s.AddTopicEventHandler(&common.Subscription{
 		PubsubName: pubsubName,
 		Topic:      pubsubTopic,
 	}, func(ctx context.Context, e *common.TopicEvent) (retry bool, err error) {
 		fmt.Printf("event consumed %s %s\n", e.DataContentType, e.ID)
 		return false, nil
-	})
+	}); err != nil {
+		panic(err)
+	}
 
 	err = s.Start()
 	if err != nil {

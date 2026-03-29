@@ -29,7 +29,7 @@ func (s *MongoStorage) Create(todo *todos.Todo) error {
 	}
 	if count >= int64(s.maxItems) {
 		// set the sort to -1 to sort descending and get the last item for deletion
-		deleteOptions := options.FindOneAndDelete().SetSort(bson.D{{"_id", -1}})
+		deleteOptions := options.FindOneAndDelete().SetSort(bson.D{{Key: "_id", Value: -1}})
 		s.coll.FindOneAndDelete(context.Background(), bson.D{}, deleteOptions)
 	}
 	_, err = s.coll.InsertOne(context.Background(), todo)
@@ -38,14 +38,14 @@ func (s *MongoStorage) Create(todo *todos.Todo) error {
 
 func (s *MongoStorage) Update(todo *todos.Todo) error {
 	todo.UpdatedAt = time.Now()
-	filter := bson.D{{"todoId", todo.Id}}
-	update := bson.D{{"$set", todo}}
+	filter := bson.D{{Key: "todoId", Value: todo.Id}}
+	update := bson.D{{Key: "$set", Value: todo}}
 	_, err := s.coll.UpdateOne(context.Background(), filter, update)
 	return err
 }
 
 func (s *MongoStorage) Delete(todo *todos.Todo) error {
-	filter := bson.D{{"todoId", todo.Id}}
+	filter := bson.D{{Key: "todoId", Value: todo.Id}}
 	_, err := s.coll.DeleteOne(context.Background(), filter)
 	return err
 }

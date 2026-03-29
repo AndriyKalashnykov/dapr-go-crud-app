@@ -25,5 +25,7 @@ func main() {
 		})
 	})
 
-	engine.Run("0.0.0.0:8080")
+	if err := engine.Run("0.0.0.0:8080"); err != nil {
+		panic(err)
+	}
 }

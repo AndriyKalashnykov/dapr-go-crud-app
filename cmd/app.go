@@ -52,6 +52,8 @@ func main() {
 		Subcommands: []*ffcli.Command{serve},
 	}
 
-	root.ParseAndRun(context.Background(), os.Args[1:])
+	if err := root.ParseAndRun(context.Background(), os.Args[1:]); err != nil {
+		panic(err)
+	}
 
 }
