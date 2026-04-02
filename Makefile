@@ -4,11 +4,11 @@ APP_NAME       := dapr-go-crud-app
 CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
 # === Tool Versions (pinned) ===
-GOLANGCI_VERSION  := 2.1.6
-KO_VERSION        := 0.18.0
+GOLANGCI_VERSION  := 2.11.4
+KO_VERSION        := 0.18.1
 ACT_VERSION       := 0.2.87
 NVM_VERSION       := 0.40.4
-NODE_VERSION      := 22
+NODE_VERSION      := 24
 GVM_SHA           := dd652539fa4b771840846f8319fad303c7d0a8d2 # v1.0.22
 
 # === Go Version Management (via gvm) ===
@@ -158,7 +158,7 @@ zipkin-setup: zipkin-deploy
 
 #zipkin-deploy: @ Deploy Zipkin to Kubernetes
 zipkin-deploy:
-	@kubectl create deployment zipkin --image openzipkin/zipkin:3.5
+	@kubectl create deployment zipkin --image openzipkin/zipkin:3.6
 	@kubectl expose deployment zipkin --type ClusterIP --port 9411
 
 #redis-deploy: @ Deploy Redis with Helm (standalone)

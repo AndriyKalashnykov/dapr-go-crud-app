@@ -1,10 +1,11 @@
-apiVersion: dapr.io/v1alpha1
+apiVersion: dapr.io/v2alpha1
 kind: Subscription
 metadata:
   name: dummy-sub
 spec:
   topic: todos
-  route: /todos-not-existent
+  routes:
+    default: /todos-not-existent
   pubsubname: pubsub
 scopes:
 - timeline-app

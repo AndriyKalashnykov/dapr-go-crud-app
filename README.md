@@ -24,7 +24,7 @@ make ci        # full CI pipeline (format, lint, test, build)
 | [Docker](https://www.docker.com/) | latest | Container runtime |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | latest | Kubernetes CLI |
 | [ko](https://ko.build/) | 0.18+ | Go container image builder |
-| [golangci-lint](https://golangci-lint.run/) | 2.1+ | Go linters aggregator (auto-installed by `make deps`) |
+| [golangci-lint](https://golangci-lint.run/) | 2.11+ | Go linters aggregator (auto-installed by `make deps`) |
 | [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | latest | Local Dapr development (optional) |
 | [Helm](https://helm.sh/) | latest | Redis deployment to Kubernetes (optional) |
 | [act](https://github.com/nektos/act) | latest | Run GitHub Actions locally (optional) |

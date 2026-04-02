@@ -27,11 +27,11 @@ deploy/        - Kubernetes manifests
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `GOLANGCI_VERSION` | `2.1.6` | golangci-lint version |
-| `KO_VERSION` | `0.18.0` | ko image builder version |
+| `GOLANGCI_VERSION` | `2.11.4` | golangci-lint version |
+| `KO_VERSION` | `0.18.1` | ko image builder version |
 | `ACT_VERSION` | `0.2.87` | act (local CI) version |
 | `NVM_VERSION` | `0.40.4` | nvm version for Renovate |
-| `NODE_VERSION` | `22` | Node.js version for nvm |
+| `NODE_VERSION` | `24` | Node.js version for nvm |
 | `GVM_SHA` | `dd6525...` | gvm commit SHA (v1.0.22) |
 | `APP_NAMESPACE` | `crud-app` | Kubernetes namespace |
 
