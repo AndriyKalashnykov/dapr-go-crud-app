@@ -23,11 +23,12 @@ func (a *timelineApi) Timeline() []string {
 
 func (a *timelineApi) Handle(t todos.Todo) {
 	var ev string
-	if t.Deleted == "true" {
+	switch {
+	case t.Deleted == "true":
 		ev = "Todo deleted: " + t.Text
-	} else if t.Done == "true" {
+	case t.Done == "true":
 		ev = "Todo marked as done: " + t.Text
-	} else {
+	default:
 		ev = "New todo created: " + t.Text
 	}
 	a.timeline = append(a.timeline, ev)

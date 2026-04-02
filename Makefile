@@ -8,6 +8,8 @@ GOLANGCI_VERSION  := 2.1.6
 KO_VERSION        := 0.18.0
 ACT_VERSION       := 0.2.87
 NVM_VERSION       := 0.40.4
+NODE_VERSION      := 22
+GVM_SHA           := dd652539fa4b771840846f8319fad303c7d0a8d2 # v1.0.22
 
 # === Go Version Management (via gvm) ===
 # Parse all unique Go versions from every go.mod in the project
@@ -19,7 +21,7 @@ GO_VERSION  := $(shell grep -oP '^go \K[0-9.]+' go.mod)
 # In CI, actions/setup-go provides Go directly — gvm is not needed.
 # Locally, gvm sets GOROOT/GOPATH/PATH in a subshell (does not persist across recipe lines).
 # go-exec detects which environment we're in and wraps commands accordingly.
-HAS_GVM := $(shell command -v gvm >/dev/null 2>&1 && echo true || echo false)
+HAS_GVM := $(shell [ -s "$$HOME/.gvm/scripts/gvm" ] && echo true || echo false)
 define go-exec
 $(if $(filter true,$(HAS_GVM)),bash -c '. $$GVM_ROOT/scripts/gvm && gvm use go$(GO_VERSION) >/dev/null && $(1)',bash -c '$(1)')
 endef
@@ -36,6 +38,15 @@ help:
 
 #deps: @ Check and install required dependencies
 deps:
+	@if [ -z "$$CI" ] && [ ! -s "$$HOME/.gvm/scripts/gvm" ]; then \
+		echo "Installing gvm (Go Version Manager)..."; \
+		curl -s -S -L https://raw.githubusercontent.com/moovweb/gvm/$(GVM_SHA)/binscripts/gvm-installer | bash -s $(GVM_SHA); \
+		echo ""; \
+		echo "gvm installed. Please restart your shell or run:"; \
+		echo "  source $$HOME/.gvm/scripts/gvm"; \
+		echo "Then re-run 'make deps' to install Go $(GO_VERSION) via gvm."; \
+		exit 0; \
+	fi
 	@if [ "$(HAS_GVM)" = "true" ]; then \
 		for v in $(GO_VERSIONS); do \
 			bash -c '. $$GVM_ROOT/scripts/gvm && gvm list' 2>/dev/null | grep -q "go$$v" || { \
@@ -52,11 +63,11 @@ deps:
 	@$(call go-exec,command -v ko) >/dev/null 2>&1 || { echo "Installing ko v$(KO_VERSION)..."; \
 		$(call go-exec,go install github.com/google/ko@v$(KO_VERSION)); }
 	@command -v node >/dev/null 2>&1 || { \
-		echo "Installing nvm $(NVM_VERSION)..."; \
+		echo "Installing nvm $(NVM_VERSION) + Node $(NODE_VERSION)..."; \
 		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
 		export NVM_DIR="$$HOME/.nvm"; \
 		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
-		nvm install --lts; \
+		nvm install $(NODE_VERSION); \
 	}
 
 #deps-check: @ Show required Go versions and gvm status
@@ -73,9 +84,9 @@ deps-act: deps
 		curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
 	}
 
-#test: @ Run tests
+#test: @ Run tests with race detection
 test: deps
-	@$(call go-exec,go test ./...)
+	@$(call go-exec,go test -race ./...)
 
 #build: @ Build all binaries
 build: deps
@@ -94,7 +105,7 @@ build: deps
 clean:
 	@rm -rf ./.bin
 
-#lint: @ Run linters
+#lint: @ Run golangci-lint (includes gocritic via .golangci.yml)
 lint: deps
 	@$(call go-exec,golangci-lint run ./...)
 
@@ -102,9 +113,14 @@ lint: deps
 run: deps
 	@$(call go-exec,go run ./cmd/app.go serve -connStr dapr)
 
+#format: @ Format Go source files
+format: deps
+	@$(call go-exec,gofmt -w .)
+
 #update: @ Update Go dependencies
 update: deps
-	@$(call go-exec,go get -u ./... && go mod tidy)
+	@$(call go-exec,go get -u ./...)
+	@$(call go-exec,go mod tidy)
 
 #push: @ Publish all images with ko
 push: deps
@@ -130,7 +146,7 @@ app-logs:
 
 #mongo-run: @ Run MongoDB in Docker
 mongo-run:
-	@docker run -it -p 27017:27017 mongo:4.0-xenial
+	@docker run -it -p 27017:27017 mongo:8.0
 
 #dapr-run: @ Run app with Dapr sidecar
 dapr-run:
@@ -142,7 +158,7 @@ zipkin-setup: zipkin-deploy
 
 #zipkin-deploy: @ Deploy Zipkin to Kubernetes
 zipkin-deploy:
-	@kubectl create deployment zipkin --image openzipkin/zipkin
+	@kubectl create deployment zipkin --image openzipkin/zipkin:3.5
 	@kubectl expose deployment zipkin --type ClusterIP --port 9411
 
 #redis-deploy: @ Deploy Redis with Helm (standalone)
@@ -173,7 +189,7 @@ release:
 		echo "$$newtag" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+$$" || { echo "Error: Tag must match vN.N.N"; exit 1; } && \
 		echo -n "Create and push $$newtag? [y/N] " && read ans && [ "$${ans:-N}" = y ] && \
 		echo $$newtag > ./version.txt && \
-		git add -A && \
+		git add version.txt && \
 		git commit -a -s -m "Cut $$newtag release" && \
 		git tag $$newtag && \
 		git push origin $$newtag && \
@@ -184,8 +200,25 @@ release:
 renovate-validate: deps
 	@npx --yes renovate --platform=local
 
+#deps-prune: @ Remove unused Go dependencies
+deps-prune: deps
+	@echo "=== Dependency Pruning ==="
+	@echo "--- Go: running go mod tidy ---"
+	@$(call go-exec,go mod tidy)
+	@echo "=== Pruning complete ==="
+
+#deps-prune-check: @ Verify no prunable dependencies (CI gate)
+deps-prune-check: deps
+	@$(call go-exec,go mod tidy)
+	@if ! git diff --exit-code go.mod go.sum >/dev/null 2>&1; then \
+		echo "ERROR: go.mod/go.sum not tidy. Run 'make deps-prune'."; \
+		git checkout go.mod go.sum; \
+		exit 1; \
+	fi
+	@echo "No prunable dependencies found."
+
 #ci: @ Run full CI pipeline locally
-ci: deps lint test build
+ci: deps format lint test build
 	@echo "CI passed."
 
 #ci-run: @ Run GitHub Actions workflow locally using act
@@ -193,6 +226,6 @@ ci-run: deps-act
 	@act push --container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 
-.PHONY: help deps deps-check deps-act test build clean lint run update push rollout app-logs \
+.PHONY: help deps deps-check deps-act test build clean lint format run update push rollout app-logs \
 	mongo-run dapr-run zipkin-setup zipkin-deploy redis-deploy redis-deploy-replicated \
-	deploy apply release renovate-validate ci ci-run
+	deploy apply release renovate-validate deps-prune deps-prune-check ci ci-run

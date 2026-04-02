@@ -10,7 +10,6 @@ type InMemoryStorage struct {
 	maxItems int
 }
 
-
 func (s *InMemoryStorage) Create(todo *todos.Todo) error {
 	todo.Id = uuid.New().String()
 	if len(s.all) >= s.maxItems {

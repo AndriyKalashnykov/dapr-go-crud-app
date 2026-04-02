@@ -16,7 +16,6 @@ type MongoStorage struct {
 	maxItems int
 }
 
-
 func (s *MongoStorage) Create(todo *todos.Todo) error {
 	todo.Id = uuid.New().String()
 	todo.CreatedAt = time.Now()

@@ -20,7 +20,6 @@ var pubsubName string = "pubsub"
 var pubsubTopic string = "todos"
 var indexKey string = "index"
 
-
 func (s *DaprStorage) Create(todo *todos.Todo) error {
 	todo.Id = uuid.New().String()
 	bytes, err := json.Marshal(todo)

@@ -12,7 +12,7 @@ A set of Go microservices demonstrating Dapr (Distributed Application Runtime) f
 make deps      # install/check required tools
 make build     # build all binaries
 make test      # run tests
-make run       # start the main app locally (requires Dapr)
+make ci        # full CI pipeline (format, lint, test, build)
 ```
 
 ## Prerequisites
@@ -44,8 +44,9 @@ Run `make help` to see all available targets.
 | Target | Description |
 |--------|-------------|
 | `make build` | Build all binaries |
-| `make test` | Run tests |
-| `make lint` | Run linters |
+| `make test` | Run tests with race detection |
+| `make lint` | Run golangci-lint (includes gocritic via .golangci.yml) |
+| `make format` | Format Go source files |
 | `make clean` | Remove build artifacts |
 | `make run` | Run the main app locally |
 | `make update` | Update Go dependencies |
@@ -82,8 +83,12 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
+| `make help` | List available tasks |
 | `make deps` | Check and install required dependencies (uses gvm for Go) |
 | `make deps-check` | Show required Go versions and gvm status |
+| `make deps-act` | Install act for local CI |
+| `make deps-prune` | Remove unused Go dependencies |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate) |
 | `make release` | Create and push a new tag |
 | `make renovate-validate` | Validate Renovate configuration |
 
@@ -93,10 +98,15 @@ GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
 
 | Job | Triggers | Steps |
 |-----|----------|-------|
-| **ci** | push (main), PR, tags | Lint, Test, Build |
+| **static-check** | push (main), PR, tags | Lint |
+| **build** | after static-check | Build, upload artifacts |
+| **test** | after static-check | Test |
+| **cleanup** | weekly (Sunday) + manual | Delete old workflow runs (retain 7 days, keep 5 minimum) |
+
+Concurrency is set with `cancel-in-progress: true`. Permissions are minimal (`contents: read`).
 
 [Renovate](https://docs.renovatebot.com/) keeps dependencies up to date with platform automerge enabled.
 
-### References
+## References
 
 - [Original crud app](https://github.com/famarting/crud-app)

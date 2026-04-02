@@ -2,8 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices",
-    ":semanticCommitType(chore)",
-    ":separatePatchReleases"
+    ":semanticCommitType(chore)"
   ],
   "postUpdateOptions": [
     "gomodTidy"
@@ -59,13 +58,6 @@
         "/^github.com\\/dapr/"
       ],
       "groupName": "Dapr SDK"
-    },
-    {
-      "description": "Block echo v5 until echo-swagger supports it",
-      "matchPackageNames": [
-        "github.com/labstack/echo/v5"
-      ],
-      "enabled": false
     }
   ]
 }
