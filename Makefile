@@ -6,7 +6,7 @@ CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "de
 # === Tool Versions (pinned) ===
 GOLANGCI_VERSION  := 2.1.6
 KO_VERSION        := 0.18.0
-ACT_VERSION       := 0.2.86
+ACT_VERSION       := 0.2.87
 NVM_VERSION       := 0.40.4
 
 # === Go Version Management (via gvm) ===
