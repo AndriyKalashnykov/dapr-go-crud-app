@@ -330,14 +330,23 @@ e2e-apply:
 		done && \
 		$(KUBECTL_E2E) apply -f "$$tmpdir" -n $(APP_NAMESPACE)
 
-#e2e-load-images: @ ko-build images and load into the kind cluster (no registry push)
+#e2e-load-images: @ ko-build images locally and `kind load` each into the cluster
 e2e-load-images:
 	@# Build with the SAME repo/tag the deploy YAMLs reference so locally-loaded
-	@# images satisfy the spec without a YAML rewrite. ko's KIND_CLUSTER_NAME
-	@# integration loads the produced image into every node of the named cluster.
-	@KO_DOCKER_REPO=$(KO_DOCKER_REPO) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ko publish --base-import-paths --tags=latest --push=false \
-		$(addprefix ./cmd/,$(BINARY_DIRS))
+	@# images satisfy the spec without a YAML rewrite. `ko build --local`
+	@# tags the local Docker daemon; `kind load docker-image` then ships
+	@# each ref into every node of the named cluster.
+	@# (Note: `ko publish --push=false` does NOT load anywhere — it builds
+	@# layers in cache but never tags the daemon. ko's `kind.local`
+	@# auto-loading only fires when KO_DOCKER_REPO starts with `kind.local`.
+	@# Neither is what we want — see commit 9f6a928 for the failure mode.)
+	@for d in $(BINARY_DIRS); do \
+		ref="$(KO_DOCKER_REPO)/$$d:latest"; \
+		echo "==> ko build --local $$ref"; \
+		ko build --local --base-import-paths --tags=latest ./cmd/$$d >/dev/null || exit 1; \
+		echo "==> kind load docker-image $$ref"; \
+		kind load docker-image --name $(KIND_CLUSTER_NAME) "$$ref" || exit 1; \
+	done
 
 #e2e: @ Bring up the full stack (KinD + Dapr + Redis + ko-loaded apps) and run the smoke test
 e2e: kind-up dapr-install e2e-redis-deploy e2e-load-images e2e-apply e2e-smoke
