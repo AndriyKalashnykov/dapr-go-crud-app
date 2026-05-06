@@ -5,7 +5,7 @@
 
 # Dapr Go CRUD App
 
-Reference implementation of a 10-binary Go microservice topology on Dapr, exercising four building blocks (state store, pub/sub, service invocation, resiliency) against a single Redis cluster on Kubernetes. Container images are built and published with `ko` (no Dockerfile).
+Learn Dapr by running a real Go microservice topology on Kubernetes. Ten services exercise the four building blocks — pub/sub, state store, service invocation, resiliency — across a single Redis backplane. Multi-arch images are built with `ko`, signed by cosign keyless OIDC, and tag-published to GHCR.
 
 ```mermaid
 C4Context
