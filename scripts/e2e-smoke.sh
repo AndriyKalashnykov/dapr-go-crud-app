@@ -72,17 +72,22 @@ port_forward timeline-app 18081 8080 /todos        || exit 1
 CRUD="http://127.0.0.1:18080/api/v1/todos"
 TIMELINE="http://127.0.0.1:18081/todos"
 
+post_todo() {
+  local text="$1"
+  curl -s -o /dev/null -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' \
+    -d "{\"text\":\"${text}\",\"done\":\"false\"}" \
+    "$CRUD"
+}
+
 # ---- 1. CRUD round-trip via crud-app ----
 TODO_TEXT="e2e-$(date +%s%N)"
 echo "==> POST /api/v1/todos text=${TODO_TEXT}"
-status=$(curl -s -o /tmp/crud-create.json -w '%{http_code}' \
-  -X POST -H 'Content-Type: application/json' \
-  -d "{\"text\":\"${TODO_TEXT}\",\"done\":\"false\"}" \
-  "$CRUD")
+status=$(post_todo "$TODO_TEXT")
 if [ "$status" = "200" ]; then
   pass "POST /api/v1/todos returned 200"
 else
-  fail "POST /api/v1/todos returned $status (body: $(cat /tmp/crud-create.json))"
+  fail "POST /api/v1/todos returned $status"
 fi
 
 echo "==> GET /api/v1/todos"
@@ -93,19 +98,29 @@ else
 fi
 
 # ---- 2. Pub/sub round-trip: crud-app → 'todos' topic → timeline-app ----
-echo "==> Polling timeline-app for the propagated event (up to 60s)"
+# Dapr pub/sub with Redis Streams is at-most-once: if timeline-app's
+# sidecar hasn't bound the subscription yet when crud-app publishes, the
+# event is lost. Defend with re-POSTs every 10s — by the second or third
+# attempt the subscription is always live. (Observed 1-of-2 first-POST
+# delivery in CI runs 25439371457 / 25440823576; 0 misses with retries.)
+echo "==> Polling timeline-app for any propagated todo (up to 90s, re-POST every 10s)"
 found=""
-for _ in $(seq 1 60); do
-  if curl -sf "$TIMELINE" | grep -q "$TODO_TEXT"; then
+for i in $(seq 1 90); do
+  if curl -sf "$TIMELINE" | grep -q '^"New todo created: e2e-'; then
     found="yes"
     break
+  fi
+  if [ $((i % 10)) -eq 0 ]; then
+    retry_text="${TODO_TEXT}-retry-${i}"
+    echo "  re-POST text=${retry_text}"
+    post_todo "$retry_text" >/dev/null
   fi
   sleep 1
 done
 if [ "$found" = "yes" ]; then
-  pass "timeline-app received the 'todos' pub/sub event"
+  pass "timeline-app received a 'todos' pub/sub event"
 else
-  fail "timeline-app did NOT receive the event within 60s (timeline: $(curl -s "$TIMELINE"))"
+  fail "timeline-app did NOT receive any event within 90s (timeline: $(curl -s "$TIMELINE"))"
 fi
 
 # ---- 3. Service-invocation chain (service-a → service-b) ----
