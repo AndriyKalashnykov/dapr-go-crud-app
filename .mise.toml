@@ -5,9 +5,9 @@
 go             = "1.26.2"
 node           = "24"
 
-"aqua:golangci/golangci-lint"           = "2.11.4"
+"aqua:golangci/golangci-lint"           = "2.12.2"
 "aqua:ko-build/ko"                      = "0.18.1"
-"aqua:nektos/act"                       = "0.2.87"
+"aqua:nektos/act"                       = "0.2.88"
 "aqua:securego/gosec"                   = "2.26.1"
 "aqua:gitleaks/gitleaks"                = "8.30.1"
 "aqua:aquasecurity/trivy"               = "0.70.0"
@@ -24,4 +24,4 @@ node           = "24"
 # Image-supply-chain toolchain — ko (already above), cosign for signing,
 # crane for `make image-sign` digest lookups.
 "aqua:sigstore/cosign"                  = "3.0.6"
-"aqua:google/go-containerregistry"      = "0.20.6"
+"aqua:google/go-containerregistry"      = "0.21.5"
