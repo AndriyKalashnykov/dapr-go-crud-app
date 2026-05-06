@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: errorgen-app
-        image: andriykalashnykov/errorgen-4c58529a678401f7741de37538be0187:latest
+        image: ghcr.io/andriykalashnykov/dapr-go-crud-app/errorgen:latest
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false

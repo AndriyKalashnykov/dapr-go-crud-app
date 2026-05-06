@@ -20,3 +20,8 @@ node           = "24"
 "aqua:kubernetes/kubernetes/kubectl"    = "1.36.0"
 "aqua:helm/helm"                        = "3.20.2"
 "aqua:dapr/cli"                         = "1.17.1"
+
+# Image-supply-chain toolchain — ko (already above), cosign for signing,
+# crane for `make image-sign` digest lookups.
+"aqua:sigstore/cosign"                  = "3.0.6"
+"aqua:google/go-containerregistry"      = "0.20.6"

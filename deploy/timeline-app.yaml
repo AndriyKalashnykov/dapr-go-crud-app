@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: timeline-app
-        image: andriykalashnykov/timeline-d6193c707bb7118be06d0e88b3f7a67b:latest
+        image: ghcr.io/andriykalashnykov/dapr-go-crud-app/timeline:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: datagen-app
-        image: andriykalashnykov/datagen-30887c0ed1c30f9d8b144a6c421055bf:latest
+        image: ghcr.io/andriykalashnykov/dapr-go-crud-app/datagen:latest
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false

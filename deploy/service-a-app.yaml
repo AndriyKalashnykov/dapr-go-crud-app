@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: service-a
-        image: andriykalashnykov/service-a-248c5038910590005d59a42ce529f584:latest
+        image: ghcr.io/andriykalashnykov/dapr-go-crud-app/service-a:latest
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false

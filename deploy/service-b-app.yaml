@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: service-b
-        image: andriykalashnykov/service-b-9acac2ae91b0dae0733e54792b512b0c:latest
+        image: ghcr.io/andriykalashnykov/dapr-go-crud-app/service-b:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

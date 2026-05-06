@@ -142,18 +142,43 @@ curl localhost:8080/api/v1/todos
 | Stage | Command | Output |
 |-------|---------|--------|
 | Compile | `make build` | `./.bin/{app,consumer,datagen,dummy,errorgen,publisher,service-a,service-b,service-c,timeline}` |
-| Local image build (no push) | `make image-build` | OCI images in the local Docker daemon |
-| Publish images | `make push` | Pushes to `$KO_DOCKER_REPO` (default `docker.io/andriykalashnykov`; override via env) |
+| Local image build (no push, single-arch, `--base-import-paths`) | `make image-build` | `<binary>:scan` images in the local Docker daemon |
+| Trivy scan local images | `make image-scan` | Fails on HIGH/CRITICAL — runs against `<binary>:scan` images |
+| Smoke test local images | `make image-smoke-test` | Boots each binary briefly; fails any that crash within 5s |
+| Publish images (multi-arch, gated) | `make push` | Multi-arch (`linux/amd64,linux/arm64`) push to `$KO_DOCKER_REPO`; depends on `image-scan` + `image-smoke-test`; default repo `ghcr.io/andriykalashnykov/dapr-go-crud-app` |
+| Cosign keyless sign published images | `make image-sign` | Signs the digest of each `<repo>/<binary>:latest` (operator's `gh` OIDC identity) |
 
-ko hashes the source tree to produce content-addressed image names. Override the registry per call:
+Override the registry per call (e.g., for Docker Hub):
 
 ```bash
-KO_DOCKER_REPO=ghcr.io/your-org/dapr-go-crud-app make push
+KO_DOCKER_REPO=docker.io/youruser/dapr-go-crud-app make push
+```
+
+### Pre-push image hardening
+
+The CI `docker` job runs the following gates **before** any image is pushed to GHCR. Any failure blocks the release.
+
+| # | Gate | Catches | Tool |
+|---|------|---------|------|
+| 1 | Build local single-arch image | Build regressions on the runner architecture | `ko build --local --base-import-paths` |
+| 2 | **Trivy image scan** (CRITICAL/HIGH blocking) | CVEs in the distroless base, OS packages, build layers | `aquasecurity/trivy-action` with `image-ref:` |
+| 3 | **Smoke test** | Image boots without crash-looping in the first 5s | `scripts/image-smoke-test.sh` (`docker run` + status check) |
+| 4 | Multi-arch build + push | Publishes for both `linux/amd64` and `linux/arm64` | `ko publish --platform=linux/amd64,linux/arm64` |
+| 5 | **Cosign keyless OIDC signing** | Sigstore signature on the manifest digest | `sigstore/cosign-installer` + `cosign sign` |
+
+Buildkit in-manifest attestations (`provenance` + `sbom`) are deliberately disabled — ko does not emit `unknown/unknown` attestation entries by default, so the GHCR Packages UI's "OS / Arch" tab renders correctly. Cosign keyless signing covers supply-chain verification.
+
+Verify a published image's signature:
+
+```bash
+cosign verify ghcr.io/andriykalashnykov/dapr-go-crud-app/<binary>:<tag> \
+  --certificate-identity-regexp 'https://github\.com/AndriyKalashnykov/dapr-go-crud-app/\.github/workflows/ci\.yml@refs/tags/v.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 ## Deployment
 
-The `deploy/*.yaml` manifests assume Redis is reachable at `redis-master.crud-app:6379` (the default for the Bitnami Helm chart in the `crud-app` namespace).
+The `deploy/*.yaml` manifests reference `ghcr.io/andriykalashnykov/dapr-go-crud-app/<binary>:latest` images and assume Redis is reachable at `redis-master.crud-app:6379` (the default for the Bitnami Helm chart in the `crud-app` namespace). Pods use `imagePullPolicy: Always`, so `make rollout` re-pulls the latest image on every restart — convenient for following the `:latest` tag, but pin to `:vN.N.N` in the manifests for production deploys to make versions explicit.
 
 ```bash
 make redis-deploy        # Helm install Redis (standalone)
@@ -210,8 +235,11 @@ Run `make help` to see all targets. They are grouped here for reference.
 
 | Target | Description |
 |--------|-------------|
-| `make image-build` | Build images locally (no push) |
-| `make push` | Publish images to `$KO_DOCKER_REPO` |
+| `make image-build` | Build images locally (no push, single-arch) |
+| `make image-scan` | Trivy scan locally-built images (CRITICAL/HIGH blocking) |
+| `make image-smoke-test` | Boot each binary briefly to verify it doesn't crash |
+| `make push` | Multi-arch publish to `$KO_DOCKER_REPO` (gated on `image-scan` + `image-smoke-test`) |
+| `make image-sign` | Cosign keyless sign every published `:latest` tag |
 
 ### Kubernetes
 
@@ -266,7 +294,8 @@ Runs on every push to `main`, on `v*` tags, on pull requests, and via `workflow_
 | `test` | `needs: [changes, static-check]` | `make test` (unit) |
 | `integration-test` | `needs: [changes, static-check]` | `make integration-test` (Testcontainers) |
 | `e2e` | `needs: [changes, build]` | `helm/kind-action` → `make dapr-install` → `make e2e-redis-deploy` → `make e2e-apply` → `make e2e-smoke`; on failure dumps pod state + logs |
-| `ci-pass` | `needs: [changes, static-check, build, test, integration-test, e2e]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Use this as the single required-status-check rule. |
+| `docker` | `needs: [static-check, build, test, integration-test, e2e]`, `if: startsWith(github.ref, 'refs/tags/')`, `strategy.matrix.binary` × 10 | Tag-gated supply-chain pipeline per /harden-image-pipeline Pattern A: ko build local → Trivy image scan (CRITICAL/HIGH) → smoke test → ko publish multi-arch (`linux/amd64,linux/arm64`) → cosign keyless OIDC signing by digest. Permissions `packages: write` + `id-token: write` are job-scoped. |
+| `ci-pass` | `needs: [changes, static-check, build, test, integration-test, e2e, docker]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Tag-gated `docker` is `skipped` on non-tag pushes (treated as non-failure). Use this as the single required-status-check rule. |
 
 Concurrency: `cancel-in-progress: true`. Permissions: `contents: read` (jobwise; `changes` adds `pull-requests: read`).
 
@@ -278,9 +307,9 @@ Weekly cron (Sunday midnight UTC) plus manual `workflow_dispatch`. Calls `make c
 
 | Name | Type | Used by | How to obtain |
 |------|------|---------|---------------|
-| `GITHUB_TOKEN` | Secret (built-in) | every job | Provided automatically by GitHub Actions; no setup |
+| `GITHUB_TOKEN` | Secret (built-in) | every job, including `docker` (GHCR push) | Provided automatically by GitHub Actions; no setup |
 
-No additional secrets or variables are required. Image publishing (`make push`) is currently a local-only flow — it is not invoked from CI, so no registry credentials need to be configured.
+No additional secrets or variables are required. The `docker` job uses `GITHUB_TOKEN` for GHCR auth (repo-namespace path `ghcr.io/<owner>/<repo>/<pkg>` per [GHCR namespace rules](#)) and OIDC for cosign keyless signing — no PAT or cosign keypair to manage.
 
 [Renovate](https://docs.renovatebot.com/) tracks every dependency: Go modules, GitHub Actions, the `.mise.toml` toolchain (via the native `mise` manager), and Makefile inline-comment pins (`MONGO_VERSION`, `ZIPKIN_VERSION`, `ACT_UBUNTU_VERSION`, `MERMAID_CLI_VERSION`). Toolchain bumps are grouped into a single PR.
 

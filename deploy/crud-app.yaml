@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: crud-app
-        image: andriykalashnykov/cmd-6546bb5bccd43ba1fbe91fa0d6bca6d4:latest
+        image: ghcr.io/andriykalashnykov/dapr-go-crud-app/app:latest
         imagePullPolicy: Always
         args:
         - serve

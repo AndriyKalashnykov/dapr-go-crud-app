@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: app
-        image: andriykalashnykov/publisher-3630a7760c9fdeddb1d57b5700d97918:latest
+        image: ghcr.io/andriykalashnykov/dapr-go-crud-app/publisher:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

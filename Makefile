@@ -23,13 +23,29 @@ ACT_UBUNTU_VERSION := act-24.04
 MERMAID_CLI_VERSION := 11.4.2
 
 # === Registry (overridable from env) ===
-export KO_DOCKER_REPO ?= docker.io/andriykalashnykov
+# Default to GHCR repo-namespace path so `GITHUB_TOKEN` can publish
+# (the user-namespace path `ghcr.io/andriykalashnykov/<pkg>` requires a
+# PAT — see /harden-image-pipeline §"GHCR namespace rule").
+export KO_DOCKER_REPO ?= ghcr.io/andriykalashnykov/dapr-go-crud-app
 
+# ko-published image short-name strategy: --base-import-paths uses just
+# the leaf directory under cmd/ (e.g. ./cmd/consumer → "consumer"). All
+# 10 binaries follow the same `./cmd/<name>` shape, so one BINARY_DIRS
+# list covers everything.
 APP_NAMESPACE ?= crud-app
 
-# Single source of truth for binary list. cmd/app.go is intentionally a
-# top-level file; every other cmd is a subdirectory.
-BINARY_DIRS := consumer datagen dummy errorgen publisher service-a service-b service-c timeline
+BINARY_DIRS := app consumer datagen dummy errorgen publisher service-a service-b service-c timeline
+
+# Multi-arch publish target. Override locally with `make push KO_PLATFORMS=linux/amd64`
+# for faster single-arch dev builds.
+KO_PLATFORMS ?= linux/amd64,linux/arm64
+
+# Cosign-installer pin (Renovate via the github-actions manager keeps
+# the workflow ref in sync; this constant only matters for `make
+# image-sign` ad-hoc operator runs that go through `mise install` →
+# aqua:sigstore/cosign).
+# renovate: datasource=github-releases depName=sigstore/cosign
+COSIGN_VERSION := 3.0.6
 
 # Cleanup workflow knobs (override at invocation: make cleanup-runs RETAIN_DAYS=14)
 RETAIN_DAYS  ?= 7
@@ -70,7 +86,6 @@ integration-test: deps
 
 #build: @ Build all binaries
 build: deps
-	@go build -o ./.bin/app ./cmd/app.go
 	@for d in $(BINARY_DIRS); do go build -o ./.bin/$$d ./cmd/$$d || exit 1; done
 
 #clean: @ Remove build artifacts and coverage output
@@ -146,15 +161,38 @@ update-minor: deps
 	@go get -u=patch ./...
 	@go mod tidy
 
-#image-build: @ Build images locally (no push)
+#image-build: @ Build images locally (no push, single-arch, ko.local prefix)
 image-build: deps
-	@ko build --local --bare ./cmd
-	@for d in $(BINARY_DIRS); do ko build --local --bare ./cmd/$$d || exit 1; done
+	@for d in $(BINARY_DIRS); do \
+		KO_DOCKER_REPO=ko.local ko build --local --base-import-paths --tags=scan ./cmd/$$d || exit 1; \
+	done
 
-#push: @ Publish all images with ko
-push: deps
-	@ko publish ./cmd
-	@for d in $(BINARY_DIRS); do ko publish ./cmd/$$d || exit 1; done
+#image-scan: @ Trivy scan locally-built ko images (CRITICAL/HIGH blocking)
+image-scan: image-build
+	@for d in $(BINARY_DIRS); do \
+		echo "==> trivy image ko.local/$$d:scan"; \
+		trivy image --quiet --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "ko.local/$$d:scan" || exit 1; \
+	done
+
+#image-smoke-test: @ Boot each ko-built binary briefly and verify it doesn't crash
+image-smoke-test: image-build
+	@refs=""; for d in $(BINARY_DIRS); do refs="$$refs ko.local/$$d:scan"; done; \
+		bash scripts/image-smoke-test.sh $$refs
+
+#push: @ Publish images with ko (multi-arch by default; gated on image-scan + image-smoke-test)
+push: deps image-scan image-smoke-test
+	@for d in $(BINARY_DIRS); do \
+		ko publish --base-import-paths --platform=$(KO_PLATFORMS) ./cmd/$$d || exit 1; \
+	done
+
+#image-sign: @ Cosign keyless-sign every image:tag pushed by `make push` (operator's gh identity)
+image-sign: deps
+	@for d in $(BINARY_DIRS); do \
+		ref="$(KO_DOCKER_REPO)/$$d:latest"; \
+		digest=$$(crane digest "$$ref" 2>/dev/null) || { echo "skip $$d (no published tag yet)"; continue; }; \
+		echo "==> cosign sign $$ref@$$digest"; \
+		cosign sign --yes "$$ref@$$digest" || exit 1; \
+	done
 
 #rollout: @ Restart app pods
 rollout:
@@ -171,7 +209,7 @@ mongo-run:
 
 #dapr-run: @ Run app under Dapr sidecar (depends on build)
 dapr-run: build
-	@dapr run --app-id crud-app --app-port 8080 --dapr-http-port 3500 ./.bin/app serve -connStr dapr
+	@dapr run --app-id crud-app --app-port 8080 --dapr-http-port 3500 -- ./.bin/app serve -connStr dapr
 
 #zipkin-deploy: @ Deploy Zipkin to the current namespace
 zipkin-deploy:
@@ -286,7 +324,8 @@ e2e-apply:
 
 #e2e-load-images: @ ko-build images and load into the kind cluster (no registry push)
 e2e-load-images:
-	@KO_DOCKER_REPO=kind.local KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) ko publish --base-import-paths --tags=e2e --push=false ./cmd $(addprefix ./cmd/,$(BINARY_DIRS))
+	@KO_DOCKER_REPO=kind.local KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ko publish --base-import-paths --tags=e2e --push=false $(addprefix ./cmd/,$(BINARY_DIRS))
 
 #e2e: @ Bring up the full stack (KinD + Dapr + Redis + apps) and run the smoke test
 e2e: kind-up dapr-install e2e-redis-deploy e2e-apply e2e-smoke
@@ -307,7 +346,7 @@ ci-run: deps
 
 .PHONY: help deps test integration-test build clean lint format format-check sec vulncheck secrets \
 	trivy-fs trivy-config lint-ci shellcheck mermaid-lint static-check run update update-minor \
-	image-build push rollout app-logs mongo-run dapr-run zipkin-deploy \
+	image-build image-scan image-smoke-test image-sign push rollout app-logs mongo-run dapr-run zipkin-deploy \
 	redis-deploy redis-deploy-replicated apply deploy deploy-full release \
 	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run \
 	kind-up kind-down dapr-install dapr-uninstall \
