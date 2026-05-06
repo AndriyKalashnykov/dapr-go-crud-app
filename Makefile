@@ -40,12 +40,11 @@ BINARY_DIRS := app consumer datagen dummy errorgen publisher service-a service-b
 # for faster single-arch dev builds.
 KO_PLATFORMS ?= linux/amd64,linux/arm64
 
-# Cosign-installer pin (Renovate via the github-actions manager keeps
-# the workflow ref in sync; this constant only matters for `make
-# image-sign` ad-hoc operator runs that go through `mise install` →
-# aqua:sigstore/cosign).
-# renovate: datasource=github-releases depName=sigstore/cosign
-COSIGN_VERSION := 3.0.6
+# Cosign is pinned in `.mise.toml` (`aqua:sigstore/cosign`) and the
+# CI workflow uses `sigstore/cosign-installer` (SHA-pinned). No Makefile
+# constant is needed — the previous `COSIGN_VERSION` constant was unused
+# and duplicated the .mise.toml pin (per /makefile skill mise-migration
+# rule: drop Makefile constants whose value lives in .mise.toml).
 
 # Cleanup workflow knobs (override at invocation: make cleanup-runs RETAIN_DAYS=14)
 RETAIN_DAYS  ?= 7
@@ -54,6 +53,7 @@ GH_REPO      ?= $(shell gh repo view --json nameWithOwner -q .nameWithOwner 2>/d
 
 # === KinD / Dapr e2e ===
 KIND_CLUSTER_NAME ?= dapr-go-crud-app
+# renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts
 DAPR_HELM_VERSION ?= 1.17.1
 # Context-pinned wrappers — keep e2e flow safely scoped to the kind cluster
 # regardless of any other ~/.kube/config currently-context drift across

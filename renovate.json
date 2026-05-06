@@ -7,9 +7,13 @@
   "enabledManagers": [
     "gomod",
     "github-actions",
+    "kubernetes",
     "mise",
     "custom.regex"
   ],
+  "kubernetes": {
+    "managerFilePatterns": ["/^deploy/.+\\.yaml$/"]
+  },
   "postUpdateOptions": [
     "gomodTidy"
   ],
@@ -39,7 +43,7 @@
       "description": "Update Makefile tool versions via inline renovate comments",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)( versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*:=\\s*(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)(?: registryUrl=(?<registryUrl>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*[?:]?=\\s*(?<currentValue>[^\\s]+)"
       ]
     }
   ],
