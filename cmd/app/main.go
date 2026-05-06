@@ -54,6 +54,14 @@ func main() {
 		Name:        "app",
 		LongHelp:    "management cli for basic crud-app",
 		Subcommands: []*ffcli.Command{serve},
+		// Without an Exec on the root command, ffcli panics when invoked
+		// with no subcommand ("terminal command doesn't define an Exec
+		// function"). A clean exit prints usage and returns — supports
+		// `docker run app` smoke tests + `app --help`.
+		Exec: func(_ context.Context, _ []string) error {
+			fmt.Fprintf(os.Stderr, "usage: app serve [-port N] [-connStr STRING] [-maxItems N] [-cleanupIntervalSeconds N]\n")
+			return nil
+		},
 	}
 
 	if err := root.ParseAndRun(context.Background(), os.Args[1:]); err != nil {

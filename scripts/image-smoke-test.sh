@@ -34,12 +34,19 @@ for ref in "$@"; do
 
   # Give it 5s to crash-loop if it's going to.
   sleep 5
-  if ! docker ps --filter "name=$name" --filter "status=running" --format '{{.Names}}' | grep -qx "$name"; then
-    echo "FAIL: ${ref} exited within 5s"
-    docker logs "$name" 2>&1 | tail -30
-    EXIT=1
-  else
+  if docker ps --filter "name=$name" --filter "status=running" --format '{{.Names}}' | grep -qx "$name"; then
     echo "PASS: ${ref} still running after 5s"
+  else
+    # Container stopped — distinguish clean exit (CLI tool / printed usage
+    # and exited 0) from panic / segfault / unhandled error (non-zero exit).
+    exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$name" 2>/dev/null || echo "?")
+    if [ "$exit_code" = "0" ]; then
+      echo "PASS: ${ref} exited cleanly (code 0)"
+    else
+      echo "FAIL: ${ref} exited within 5s (code ${exit_code})"
+      docker logs "$name" 2>&1 | tail -30
+      EXIT=1
+    fi
   fi
   docker rm -f "$name" >/dev/null 2>&1 || true
 done

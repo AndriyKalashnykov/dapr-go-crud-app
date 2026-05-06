@@ -166,12 +166,19 @@ jobs:
       fail-fast: false
       matrix:
         binary: [app, consumer, datagen, dummy, errorgen, publisher, service-a, service-b, service-c, timeline]
-    env:
-      KO_DOCKER_REPO: ghcr.io/${{ github.repository }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+
+      # Docker/OCI refs must be all-lowercase, but `github.repository`
+      # preserves original GitHub account casing (`AndriyKalashnykov/...`).
+      # Lowercase once into $GITHUB_ENV so every downstream step sees the
+      # right ref. (See `/harden-image-pipeline` §"GHCR namespace rule".)
+      - name: Compute lowercase KO_DOCKER_REPO
+        run: |
+          repo="${{ github.repository }}"
+          echo "KO_DOCKER_REPO=ghcr.io/${repo,,}" >> "$GITHUB_ENV"
 
       - name: Build image for scan
         env:
