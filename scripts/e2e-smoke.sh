@@ -106,7 +106,7 @@ fi
 echo "==> Polling timeline-app for any propagated todo (up to 90s, re-POST every 10s)"
 found=""
 for i in $(seq 1 90); do
-  if curl -sf "$TIMELINE" | grep -q '^"New todo created: e2e-'; then
+  if curl -sf "$TIMELINE" | grep -q '"New todo created: e2e-'; then
     found="yes"
     break
   fi
