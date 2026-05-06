@@ -144,21 +144,30 @@ else
 fi
 
 # ---- 4. Pub/sub fan-out: events topic → consumer + service-c ----
-# Both consumer-app and service-c subscribe to the 'events' topic; either
-# publisher-app or service-b publishes. Assert both subscribers logged at
-# least one consumed event in the recent window.
-echo "==> Asserting 'events' topic fan-out"
-consumer_seen=$("${KUBECTL[@]}" logs -l app=consumer-app --tail=500 --since=120s 2>/dev/null | grep -c -iE 'event|consumed|received' || true)
-servicec_seen=$("${KUBECTL[@]}" logs -l app=service-c --tail=500 --since=120s 2>/dev/null | grep -c -iE 'event|consumed|received' || true)
+# Both consumer-app and service-c subscribe to the 'events' topic via the
+# gRPC SDK; publisher-app + service-b publish. service-c sometimes
+# subscribes slower than consumer-app on cold KinD startup, so poll up to
+# 60s for both to register at least one event before failing.
+echo "==> Asserting 'events' topic fan-out (poll up to 60s)"
+consumer_seen=0
+servicec_seen=0
+for _ in $(seq 1 30); do
+  consumer_seen=$("${KUBECTL[@]}" logs -l app=consumer-app --tail=500 2>/dev/null | grep -c 'event consumed' || true)
+  servicec_seen=$("${KUBECTL[@]}" logs -l app=service-c --tail=500 2>/dev/null | grep -c 'event consumed' || true)
+  if [ "$consumer_seen" -ge 1 ] && [ "$servicec_seen" -ge 1 ]; then
+    break
+  fi
+  sleep 2
+done
 if [ "$consumer_seen" -ge 1 ]; then
   pass "consumer-app received fan-out events (${consumer_seen} log lines)"
 else
-  fail "consumer-app has no event-related log lines in 120s window"
+  fail "consumer-app has no 'event consumed' log lines after 60s"
 fi
 if [ "$servicec_seen" -ge 1 ]; then
   pass "service-c received fan-out events (${servicec_seen} log lines)"
 else
-  fail "service-c has no event-related log lines in 120s window"
+  fail "service-c has no 'event consumed' log lines after 60s"
 fi
 
 # ---- 5. Negative cases ----

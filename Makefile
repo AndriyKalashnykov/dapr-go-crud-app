@@ -319,7 +319,16 @@ e2e-redis-deploy:
 e2e-apply:
 	@$(KUBECTL_E2E) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_E2E) apply -f -
 	@$(KUBECTL_E2E) apply -f .dapr/configuration.yaml -n $(APP_NAMESPACE)
-	@$(KUBECTL_E2E) apply -f .dapr/components -n $(APP_NAMESPACE)
+	@# Apply pubsub/state/resiliency components but skip the chaos-demo
+	@# `dummy-sub.yaml` + `dummy-resiliency.yaml` — `dummy-sub` subscribes
+	@# timeline-app to the same topic (`todos`) as `timeline-sub` but routes
+	@# to a non-existent path, which conflicts with the legitimate subscription
+	@# in Dapr 1.17 and silently drops the real events. Project keeps the
+	@# files for manual chaos-demo runs; e2e uses the legitimate path only.
+	@for f in .dapr/components/*.yaml; do \
+		case "$$(basename "$$f")" in dummy-*.yaml) continue;; esac; \
+		$(KUBECTL_E2E) apply -f "$$f" -n $(APP_NAMESPACE) || exit 1; \
+	done
 	@# deploy/*.yaml ship with `imagePullPolicy: Always` for prod (force-refresh
 	@# of :latest from GHCR). For e2e the images are kind-loaded locally — Always
 	@# triggers an unwanted GHCR pull (and 403 if the package doesn't exist yet).
