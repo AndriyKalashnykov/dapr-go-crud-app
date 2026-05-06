@@ -37,7 +37,6 @@ scripts/       - Helper scripts (mermaid-lint extractor)
 |----------|-------|---------|
 | `KO_DOCKER_REPO` | `ghcr.io/andriykalashnykov/dapr-go-crud-app` (override via env) | Default ko publish target — repo-namespace path so `GITHUB_TOKEN` can publish |
 | `KO_PLATFORMS` | `linux/amd64,linux/arm64` | Multi-arch publish target (override for faster single-arch dev builds) |
-| `COSIGN_VERSION` | `3.0.6` | Renovate-tracked cosign pin used by `make image-sign` (and verified-by-signature on the published images) |
 | `APP_NAMESPACE` | `crud-app` | Kubernetes namespace |
 | `MONGO_VERSION` | `8.0` | Renovate-tracked Docker image |
 | `ZIPKIN_VERSION` | `3.6` | Renovate-tracked Docker image |
@@ -106,7 +105,7 @@ Jobs (with explicit dependency edges):
 3. **`build`** — `needs: [changes, static-check]`. Runs `make build`, uploads `.bin/` artifacts.
 4. **`test`** — `needs: [changes, static-check]`. Runs `make test` (unit).
 5. **`integration-test`** — `needs: [changes, static-check]`. Runs `make integration-test` (Testcontainers Mongo + httptest).
-6. **`e2e`** — `needs: [changes, build]`. Provisions KinD via `helm/kind-action`, installs Dapr + Redis via Helm, applies manifests, runs `make e2e-smoke`. Diagnostic dump on failure.
+6. **`e2e`** — `needs: [changes, build]`. Provisions KinD via `helm/kind-action`, installs Dapr via Helm, applies `deploy/redis.yaml` (upstream `redis:8-alpine` standalone — no Helm chart) plus the app manifests, runs `make e2e-smoke`. Diagnostic dump on failure.
 7. **`docker`** — `needs: [static-check, build, test, integration-test, e2e]`, `if: startsWith(github.ref, 'refs/tags/')`, `strategy.matrix.binary` across all 10 cmds. Per /harden-image-pipeline Pattern A: ko build local → Trivy image scan → smoke test → ko publish multi-arch to GHCR → cosign keyless OIDC signing by digest. `provenance: false`/`sbom: false` (default — keeps the image index free of `unknown/unknown` entries so GHCR "OS / Arch" tab renders). Permissions: `contents: read`, `packages: write`, `id-token: write` (all job-scoped).
 8. **`ci-pass`** — `needs: [changes, static-check, build, test, integration-test, e2e, docker]`, `if: always()`. Aggregator that fails if any required job failed/cancelled. The `docker` job is `skipped` on non-tag pushes — handled correctly. Single status check to require in branch protection.
 
@@ -124,10 +123,11 @@ In CI, `jdx/mise-action` reads `.mise.toml` and installs the same tool set — n
 
 ## Renovate
 
-`renovate.json` enables four managers:
+`renovate.json` enables five managers:
 
 - `gomod` — go.mod
 - `github-actions` — workflow `uses:` refs
+- `kubernetes` — `image:` fields in `deploy/*.yaml` (scoped via `kubernetes.managerFilePatterns`)
 - `mise` — `.mise.toml` (`aqua:` and `go:` backends are recognised; queried via GitHub tags)
 - `custom.regex` — Makefile constants annotated with `# renovate:` comments
 

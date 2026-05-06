@@ -344,7 +344,7 @@ Weekly cron (Sunday midnight UTC) plus manual `workflow_dispatch`. Calls `make c
 |------|------|---------|---------------|
 | `GITHUB_TOKEN` | Secret (built-in) | every job, including `docker` (GHCR push) | Provided automatically by GitHub Actions; no setup |
 
-No additional secrets or variables are required. The `docker` job uses `GITHUB_TOKEN` for GHCR auth (repo-namespace path `ghcr.io/<owner>/<repo>/<pkg>` per [GHCR namespace rules](#)) and OIDC for cosign keyless signing — no PAT or cosign keypair to manage.
+No additional secrets or variables are required. The `docker` job uses `GITHUB_TOKEN` for GHCR auth (repo-namespace path `ghcr.io/<owner>/<repo>/<pkg>` — `GITHUB_TOKEN` cannot publish to user-namespace paths) and OIDC for cosign keyless signing — no PAT or cosign keypair to manage.
 
 [Renovate](https://docs.renovatebot.com/) tracks every dependency: Go modules, GitHub Actions, the `.mise.toml` toolchain (via the native `mise` manager), and Makefile inline-comment pins (`MONGO_VERSION`, `ZIPKIN_VERSION`, `ACT_UBUNTU_VERSION`, `MERMAID_CLI_VERSION`). Toolchain bumps are grouped into a single PR.
 
@@ -354,13 +354,13 @@ Three layers, three Makefile targets, three CI jobs:
 
 | Layer | Command | Covers | Runtime | Infra |
 |-------|---------|--------|---------|-------|
-| Unit | `make test` | `pkg/storage` (in-mem FIFO eviction), `pkg/timeline` (Handle branches), `pkg/server` (cleanupLoop / generateLoadLoop ticker injection), `cmd/timeline` (CloudEvent vs raw decode + handler), `cmd/app` (`selectStorage` routing) | seconds | none |
+| Unit | `make test` | `pkg/storage` (in-mem FIFO eviction; `DaprStorage` via injectable client interface — Create/Update/Delete/ListAll, FIFO eviction, error propagation), `pkg/timeline` (Handle branches), `pkg/server` (cleanupLoop / generateLoadLoop ticker injection), `cmd/timeline` (CloudEvent vs raw decode + handler), `cmd/app` (`selectStorage` routing) | seconds | none |
 | Integration | `make integration-test` | `pkg/storage.MongoStorage` (Testcontainers `mongo:8.0`, CRUD round-trip + `_id`/`todoId` mapping + maxItems cap), `pkg/server` HTTP handlers (httptest.NewServer + InMemoryStorage + 400 on bad JSON / missing required field) | tens of seconds | Docker |
 | E2E | `make e2e` (or `make e2e-smoke` against running cluster) | crud-app HTTP CRUD round-trip; pubsub `crud-app → todos → timeline-app`; service-invocation `service-a → service-b`; pubsub fan-out `events → consumer + service-c`; negatives (malformed JSON, missing required, 404) | minutes | KinD + Dapr Helm + upstream redis:8 |
 
 `make ci` runs unit + integration + build + static-check end-to-end. The e2e job runs only in CI (and on demand locally via `make e2e`) because it provisions a real cluster.
 
-DaprStorage integration coverage is currently **deferred** (would require running `daprd` standalone alongside Testcontainers Redis); the e2e layer covers it through the live cluster path.
+`DaprStorage` is unit-tested via Pattern B (a minimal `daprStateClient` interface defined at the use site, with an in-memory fake) — same level of correctness as a Testcontainers daprd would give, at unit-test speed, with no infrastructure. The e2e layer additionally exercises the real `daprd` sidecar end-to-end.
 
 ## Contributing
 
