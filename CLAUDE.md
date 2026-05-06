@@ -71,7 +71,7 @@ Three-layer test pyramid:
 |-------|--------|---------|-------|
 | Unit | `make test` | seconds | none |
 | Integration | `make integration-test` | tens of seconds | Docker (Testcontainers) |
-| E2E | `make e2e` / `make e2e-smoke` | minutes | KinD + Dapr Helm + Redis Helm |
+| E2E | `make e2e` / `make e2e-smoke` | minutes | KinD + Dapr Helm + upstream redis:8 |
 
 ## Run Locally
 
@@ -84,7 +84,7 @@ make mongo-run    # Run MongoDB in Docker (alternative storage backend)
 ## Deploy
 
 ```bash
-make redis-deploy   # Helm-install Redis (standalone)
+make redis-deploy   # Apply deploy/redis.yaml (upstream redis:8-alpine, standalone)
 make deploy         # Apply Dapr config + components + manifests (no image rebuild)
 make deploy-full    # ko publish + redis + apply (one-shot)
 make rollout        # Restart crud-app + timeline-app pods

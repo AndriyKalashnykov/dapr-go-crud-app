@@ -38,7 +38,7 @@ Rel(crud, mongo, "Optional storage backend")
 | Language | Go 1.26.2 | First-class Dapr Go SDK; static binary deploys cleanly with `ko`. |
 | HTTP routing | Gin | Minimal, well-known router with low boilerplate for sample apps. |
 | Distributed runtime | Dapr Go SDK | Sidecar abstracts state store, pub/sub, and service invocation behind a single API. |
-| State store + broker | Redis | Single backing store for both `statestore` and `pubsub` Dapr components — one Helm chart in CI/dev. |
+| State store + broker | Redis 8 (upstream image) | Single backing store for both `statestore` and `pubsub` Dapr components — one Deployment in `deploy/redis.yaml`, no Helm chart. |
 | Optional backend | MongoDB 8.0 | Demonstrates pluggable storage interface (`storage.TodosStorage`) without touching app code. |
 | Container build | ko 0.18 | Builds OCI images directly from Go source; no Dockerfile. |
 | Orchestration | Kubernetes | Dapr injector + sidecar runs as `daprd` per pod via deployment annotations. |
@@ -76,7 +76,43 @@ make deps
 
 ## Architecture
 
-The system runs as 10 sidecar-injected pods in the `crud-app` namespace, sharing a single Redis cluster as both the Dapr state store and the pub/sub broker.
+The system runs as 10 sidecar-injected pods in the `crud-app` namespace, sharing a single Redis instance as both the Dapr state store and the pub/sub broker.
+
+```mermaid
+C4Container
+title Container View — dapr-go-crud-app
+
+Person(user, "User", "REST client")
+
+System_Boundary(b1, "Kubernetes namespace: crud-app") {
+  Container(rest, "REST tier", "Go 1.26.2, Gin", "crud-app + timeline-app + dummy-app — the only HTTP listeners")
+  Container(svc, "Service-invocation tier", "Go 1.26.2, Dapr Go SDK", "service-a / service-b / service-c — gRPC subscribers + invokers")
+  Container(gens, "Load and chaos tier", "Go 1.26.2, Dapr Go SDK", "publisher / consumer / datagen / errorgen — exercise Dapr from background loops")
+  Container(daprd, "Dapr sidecars", "Dapr 1.17", "One daprd per pod — injected by the Dapr mutating webhook")
+  ContainerDb(redis, "Redis", "redis:8-alpine, standalone", "Backs both 'statestore' and 'pubsub' Dapr components")
+}
+
+System_Boundary(b2, "Kubernetes namespace: dapr-system") {
+  Container(daprctl, "Dapr control plane", "Helm chart dapr/dapr 1.17", "operator + sentry + placement + scheduler")
+}
+
+ContainerDb(mongo, "MongoDB", "mongo:8.0 (optional)", "Alternative crud-app storage when -connStr is a Mongo URI")
+
+Rel(user, rest, "HTTP", "REST")
+Rel(rest, daprd, "Save state, publish 'todos'", "Dapr SDK")
+Rel(svc, daprd, "Service invocation, subscribe 'events'", "Dapr SDK")
+Rel(gens, daprd, "Periodic publishes + state writes", "Dapr SDK")
+Rel(daprd, redis, "All state + pub/sub traffic", "Redis Streams + RESP")
+Rel(daprd, daprctl, "mTLS bootstrap, placement, etc.", "gRPC")
+Rel(rest, mongo, "Optional CRUD backend", "MongoDB wire")
+```
+
+Key facts:
+
+- **One Redis instance carries both Dapr components.** The `pubsub.redis` and `state.redis` components in `.dapr/components/` point at the same `redis-master.crud-app:6379` Service — the `subscriptionScopes` and `publishingScopes` metadata fields on the pubsub component are what make the topic routing work without separate brokers.
+- **All app traffic goes through the daprd sidecar.** The apps never speak to Redis directly; they call `client.SaveState(...)` / `client.PublishEvent(...)` / `client.InvokeMethod(...)` against `localhost:50001` (the in-pod sidecar's gRPC port), and the sidecar talks to Redis on their behalf. That's the pattern the Dapr control plane (`dapr-system`) is bootstrapping.
+- **Redis is `redis:8-alpine` standalone**, not a Helm chart. ~30 MB image, ephemeral storage (`emptyDir` for `/data`), password-protected via a Secret generated at deploy-time. Replaces an earlier `bitnami/redis` chart dependency.
+- **MongoDB is optional**, used only when `crud-app` is launched with `-connStr=mongodb://...`. The default `-connStr=dapr` path goes through Redis via the Dapr state store.
 
 ### Apps
 
@@ -178,10 +214,10 @@ cosign verify ghcr.io/andriykalashnykov/dapr-go-crud-app/<binary>:<tag> \
 
 ## Deployment
 
-The `deploy/*.yaml` manifests reference `ghcr.io/andriykalashnykov/dapr-go-crud-app/<binary>:latest` images and assume Redis is reachable at `redis-master.crud-app:6379` (the default for the Bitnami Helm chart in the `crud-app` namespace). Pods use `imagePullPolicy: Always`, so `make rollout` re-pulls the latest image on every restart — convenient for following the `:latest` tag, but pin to `:vN.N.N` in the manifests for production deploys to make versions explicit.
+The `deploy/*.yaml` manifests reference `ghcr.io/andriykalashnykov/dapr-go-crud-app/<binary>:latest` images and assume Redis is reachable at `redis-master.crud-app:6379` — that name is hardcoded in the Dapr `pubsub` and `statestore` components, and `deploy/redis.yaml` provisions it. Pods use `imagePullPolicy: Always`, so `make rollout` re-pulls the latest image on every restart — convenient for following the `:latest` tag, but pin to `:vN.N.N` in the manifests for production deploys to make versions explicit.
 
 ```bash
-make redis-deploy        # Helm install Redis (standalone)
+make redis-deploy        # Apply deploy/redis.yaml (Deployment + Service + generated Secret)
 make deploy              # Apply Dapr config + components + Deployments (no image rebuild)
 make deploy-full         # ko publish + redis + apply (one-shot fresh deploy)
 make rollout             # Restart the crud-app + timeline-app pods
@@ -245,8 +281,7 @@ Run `make help` to see all targets. They are grouped here for reference.
 
 | Target | Description |
 |--------|-------------|
-| `make redis-deploy` | Helm-install Redis (standalone) |
-| `make redis-deploy-replicated` | Helm-install Redis (replication) |
+| `make redis-deploy` | Apply `deploy/redis.yaml` (upstream `redis:8-alpine`, standalone) and generate the `redis-password` Secret |
 | `make zipkin-deploy` | Deploy Zipkin into the namespace |
 | `make apply` | Apply namespace + Dapr config + components + manifests |
 | `make deploy` | `redis-deploy` + `apply` (no image rebuild) |
@@ -258,7 +293,7 @@ Run `make help` to see all targets. They are grouped here for reference.
 | `make kind-down` | Delete the local KinD cluster |
 | `make dapr-install` | Install Dapr control plane via Helm into the kind cluster |
 | `make dapr-uninstall` | Uninstall Dapr control plane |
-| `make e2e-redis-deploy` | Helm-install Redis into the kind cluster |
+| `make e2e-redis-deploy` | Apply `deploy/redis.yaml` into the kind cluster (context-pinned) |
 | `make e2e-apply` | Apply Dapr config + components + Deployments into the kind cluster (context-pinned) |
 
 ### CI
@@ -321,7 +356,7 @@ Three layers, three Makefile targets, three CI jobs:
 |-------|---------|--------|---------|-------|
 | Unit | `make test` | `pkg/storage` (in-mem FIFO eviction), `pkg/timeline` (Handle branches), `pkg/server` (cleanupLoop / generateLoadLoop ticker injection), `cmd/timeline` (CloudEvent vs raw decode + handler), `cmd/app` (`selectStorage` routing) | seconds | none |
 | Integration | `make integration-test` | `pkg/storage.MongoStorage` (Testcontainers `mongo:8.0`, CRUD round-trip + `_id`/`todoId` mapping + maxItems cap), `pkg/server` HTTP handlers (httptest.NewServer + InMemoryStorage + 400 on bad JSON / missing required field) | tens of seconds | Docker |
-| E2E | `make e2e` (or `make e2e-smoke` against running cluster) | crud-app HTTP CRUD round-trip; pubsub `crud-app → todos → timeline-app`; service-invocation `service-a → service-b`; pubsub fan-out `events → consumer + service-c`; negatives (malformed JSON, missing required, 404) | minutes | KinD + Dapr Helm + Bitnami Redis |
+| E2E | `make e2e` (or `make e2e-smoke` against running cluster) | crud-app HTTP CRUD round-trip; pubsub `crud-app → todos → timeline-app`; service-invocation `service-a → service-b`; pubsub fan-out `events → consumer + service-c`; negatives (malformed JSON, missing required, 404) | minutes | KinD + Dapr Helm + upstream redis:8 |
 
 `make ci` runs unit + integration + build + static-check end-to-end. The e2e job runs only in CI (and on demand locally via `make e2e`) because it provisions a real cluster.
 

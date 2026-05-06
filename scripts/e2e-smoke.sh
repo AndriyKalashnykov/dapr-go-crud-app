@@ -123,24 +123,38 @@ else
   fail "timeline-app did NOT receive any event within 90s (timeline: $(curl -s "$TIMELINE"))"
 fi
 
-# ---- 3. Service-invocation chain (service-a → service-b) ----
-# service-a invokes service-b/method/hello on a 10-second ticker and logs
-# 'Order passed:' on each successful invocation. Pods may have only just
-# reached Ready, so poll up to 60s for the first invocation to fire +
-# round-trip through both Dapr sidecars.
-echo "==> Asserting service-a → service-b invocation chain (poll up to 60s)"
+# ---- 3. Service-invocation chain + resiliency policy (service-a → service-b) ----
+# service-a invokes service-b/method/hello on a 10-second ticker. service-b
+# sleeps 1500ms on ~55% of calls (cmd/service-b/main.go: rand.Intn(100) >= 45),
+# tripping service-a-resiliency's 1s timeout + retryForever exponential retry.
+# Two assertions: (a) ≥3 invocations succeed (chain works under load), AND
+# (b) the daprd sidecar logs retry/timeout evidence (proves the policy is
+# actually firing, not just the 45% fast path landing every time).
+echo "==> Asserting service-a → service-b invocation chain + resiliency policy (poll up to 90s)"
 invocations=0
-for _ in $(seq 1 30); do
-  invocations=$("${KUBECTL[@]}" logs -l app=service-a --tail=500 2>/dev/null | grep -c 'Order passed' || true)
-  if [ "$invocations" -ge 1 ]; then
+for _ in $(seq 1 45); do
+  invocations=$("${KUBECTL[@]}" logs -l app=service-a -c service-a --tail=500 2>/dev/null | grep -c 'Order passed' || true)
+  if [ "$invocations" -ge 3 ]; then
     break
   fi
   sleep 2
 done
-if [ "$invocations" -ge 1 ]; then
-  pass "service-a logged ${invocations} successful service-b invocations"
+if [ "$invocations" -ge 3 ]; then
+  pass "service-a completed ${invocations} successful service-b invocations"
 else
-  fail "service-a has zero 'Order passed' lines after 60s of polling — invocation chain broken"
+  fail "service-a logged only ${invocations} 'Order passed' lines after 90s of polling — invocation chain broken"
+fi
+
+# Resiliency policy evidence — sidecar logs of retries / timeouts.
+# Coin-flip distribution: P(all 9 calls fast) = 0.45^9 ≈ 0.07%, so retry
+# evidence is reliably present. WARN (don't fail) if unexpectedly absent —
+# the chain itself is the load-bearing assertion above.
+retry_evidence=$("${KUBECTL[@]}" logs -l app=service-a -c daprd --tail=1000 2>/dev/null \
+  | grep -ciE 'retry|timeout|deadline exceeded' || true)
+if [ "$retry_evidence" -ge 1 ]; then
+  pass "service-a-resiliency policy active (${retry_evidence} retry/timeout indicator(s) in daprd sidecar)"
+else
+  echo "WARN: no retry/timeout evidence in service-a daprd logs — every call may have landed on the fast path this run (rare but possible)"
 fi
 
 # ---- 4. Pub/sub fan-out: events topic → consumer + service-c ----
