@@ -12,12 +12,31 @@ spec:
       labels:
         app: errorgen-app
       annotations:
-        dapr.io/enabled: "true"
-        dapr.io/app-id: "errorgen-app"
+        dapr.io/enabled: 'true'
+        dapr.io/app-id: errorgen-app
         dapr.io/config: dapr-go-crud-app
-        dapr.io/log-as-json: "true"
+        dapr.io/log-as-json: 'true'
     spec:
       containers:
       - name: errorgen-app
         image: andriykalashnykov/errorgen-4c58529a678401f7741de37538be0187:latest
         imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: tmp
+        emptyDir: {}

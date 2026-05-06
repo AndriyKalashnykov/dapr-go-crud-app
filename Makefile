@@ -36,6 +36,15 @@ RETAIN_DAYS  ?= 7
 KEEP_MINIMUM ?= 5
 GH_REPO      ?= $(shell gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
 
+# === KinD / Dapr e2e ===
+KIND_CLUSTER_NAME ?= dapr-go-crud-app
+DAPR_HELM_VERSION ?= 1.17.1
+# Context-pinned wrappers — keep e2e flow safely scoped to the kind cluster
+# regardless of any other ~/.kube/config currently-context drift across
+# parallel make invocations from sibling projects.
+KUBECTL_E2E := kubectl --context=kind-$(KIND_CLUSTER_NAME)
+HELM_E2E    := helm --kube-context=kind-$(KIND_CLUSTER_NAME)
+
 #help: @ List available tasks
 help:
 	@echo "Usage: make COMMAND"
@@ -51,9 +60,13 @@ deps:
 	@command -v docker >/dev/null 2>&1 || { echo "Error: Docker is required. Install from https://www.docker.com/"; exit 1; }
 	@mise install --yes
 
-#test: @ Run tests with race detection
+#test: @ Run unit tests with race detection
 test: deps
 	@go test -race ./...
+
+#integration-test: @ Run integration tests (Testcontainers; requires Docker)
+integration-test: deps
+	@go test -race -tags=integration -v ./...
 
 #build: @ Build all binaries
 build: deps
@@ -99,7 +112,8 @@ trivy-fs: deps
 
 #trivy-config: @ Trivy IaC scan over k8s + Dapr manifests
 trivy-config: deps
-	@trivy config --quiet --exit-code 1 --severity HIGH,CRITICAL deploy .dapr
+	@trivy config --quiet --exit-code 1 --severity HIGH,CRITICAL deploy
+	@trivy config --quiet --exit-code 1 --severity HIGH,CRITICAL .dapr
 
 #lint-ci: @ Lint GitHub Actions workflows
 lint-ci: deps
@@ -230,8 +244,59 @@ cleanup-runs:
 	  --jq "sort_by(.createdAt) | reverse | .[$(KEEP_MINIMUM):] | .[] | select(.createdAt < \"$$CUTOFF\") | .databaseId" \
 	| xargs -r -I{} gh run delete {} --repo "$(GH_REPO)"
 
-#ci: @ Run full CI pipeline locally (deps + static-check + test + build)
-ci: deps static-check test build
+#kind-up: @ Create KinD cluster (idempotent)
+kind-up: deps
+	@if kind get clusters | grep -qx "$(KIND_CLUSTER_NAME)"; then \
+		echo "KinD cluster '$(KIND_CLUSTER_NAME)' already exists"; \
+	else \
+		kind create cluster --name $(KIND_CLUSTER_NAME) --wait 90s; \
+	fi
+
+#kind-down: @ Delete KinD cluster (idempotent)
+kind-down:
+	@kind delete cluster --name $(KIND_CLUSTER_NAME) || true
+
+#dapr-install: @ Install Dapr control plane via Helm
+dapr-install:
+	@helm repo add dapr https://dapr.github.io/helm-charts/ --force-update >/dev/null
+	@helm repo update >/dev/null
+	@$(HELM_E2E) upgrade --install dapr dapr/dapr \
+		--namespace dapr-system --create-namespace \
+		--version $(DAPR_HELM_VERSION) \
+		--set global.mtls.enabled=false \
+		--wait
+
+#dapr-uninstall: @ Uninstall Dapr control plane
+dapr-uninstall:
+	@$(HELM_E2E) uninstall dapr --namespace dapr-system || true
+
+#e2e-redis-deploy: @ Deploy Redis into the kind cluster (Bitnami chart)
+e2e-redis-deploy:
+	@helm repo add bitnami https://charts.bitnami.com/bitnami --force-update >/dev/null
+	@helm repo update >/dev/null
+	@$(KUBECTL_E2E) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_E2E) apply -f -
+	@$(HELM_E2E) upgrade --install redis bitnami/redis -n $(APP_NAMESPACE) --set architecture=standalone --wait
+
+#e2e-apply: @ Apply Dapr config and deployments into the kind cluster
+e2e-apply:
+	@$(KUBECTL_E2E) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_E2E) apply -f -
+	@$(KUBECTL_E2E) apply -f .dapr/configuration.yaml -n $(APP_NAMESPACE)
+	@$(KUBECTL_E2E) apply -f .dapr/components -n $(APP_NAMESPACE)
+	@$(KUBECTL_E2E) apply -f deploy -n $(APP_NAMESPACE)
+
+#e2e-load-images: @ ko-build images and load into the kind cluster (no registry push)
+e2e-load-images:
+	@KO_DOCKER_REPO=kind.local KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) ko publish --base-import-paths --tags=e2e --push=false ./cmd $(addprefix ./cmd/,$(BINARY_DIRS))
+
+#e2e: @ Bring up the full stack (KinD + Dapr + Redis + apps) and run the smoke test
+e2e: kind-up dapr-install e2e-redis-deploy e2e-apply e2e-smoke
+
+#e2e-smoke: @ Run the smoke assertions against an already-deployed cluster
+e2e-smoke: deps
+	@KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) APP_NAMESPACE=$(APP_NAMESPACE) bash scripts/e2e-smoke.sh
+
+#ci: @ Run full CI pipeline locally (deps + static-check + test + integration-test + build)
+ci: deps static-check test integration-test build
 	@echo "CI passed."
 
 #ci-run: @ Run GitHub Actions workflow locally via act
@@ -240,8 +305,10 @@ ci-run: deps
 		-P ubuntu-24.04=catthehacker/ubuntu:$(ACT_UBUNTU_VERSION) \
 		--artifact-server-path /tmp/act-artifacts
 
-.PHONY: help deps test build clean lint format format-check sec vulncheck secrets \
+.PHONY: help deps test integration-test build clean lint format format-check sec vulncheck secrets \
 	trivy-fs trivy-config lint-ci shellcheck mermaid-lint static-check run update update-minor \
 	image-build push rollout app-logs mongo-run dapr-run zipkin-deploy \
 	redis-deploy redis-deploy-replicated apply deploy deploy-full release \
-	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run
+	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run \
+	kind-up kind-down dapr-install dapr-uninstall \
+	e2e-redis-deploy e2e-apply e2e-load-images e2e e2e-smoke

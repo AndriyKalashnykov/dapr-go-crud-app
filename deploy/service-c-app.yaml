@@ -12,15 +12,48 @@ spec:
       labels:
         app: service-c
       annotations:
-        dapr.io/enabled: "true"
-        dapr.io/app-id: "service-c"
-        dapr.io/app-port: "8080"
+        dapr.io/enabled: 'true'
+        dapr.io/app-id: service-c
+        dapr.io/app-port: '8080'
         dapr.io/config: dapr-go-crud-app
-        dapr.io/log-as-json: "false"
-        dapr.io/enable-api-logging: "true"
-        dapr.io/log-level: "debug"
+        dapr.io/log-as-json: 'false'
+        dapr.io/enable-api-logging: 'true'
+        dapr.io/log-level: debug
     spec:
       containers:
       - name: service-c
         image: andriykalashnykov/service-c-5a23aea44e262141cfa51496b5dee9e3:latest
         imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: tmp
+        emptyDir: {}

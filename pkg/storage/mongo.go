@@ -61,6 +61,14 @@ func (s *MongoStorage) ListAll() ([]*todos.Todo, error) {
 	return all, nil
 }
 
+// NewMongoStorageFromCollection wraps an already-opened collection. Tests
+// construct the collection from a Testcontainer URI; production goes
+// through NewMongoStorage which dials + pings + selects the canonical
+// "mgm_lab.todos" collection.
+func NewMongoStorageFromCollection(coll *mongo.Collection, maxItems int) *MongoStorage {
+	return &MongoStorage{coll: coll, maxItems: maxItems}
+}
+
 func NewMongoStorage(connStr string, maxItems int) *MongoStorage {
 	ctx := context.Background()
 	client, err := mongo.Connect(options.Client().ApplyURI(connStr))
@@ -73,11 +81,5 @@ func NewMongoStorage(connStr string, maxItems int) *MongoStorage {
 		panic(err)
 	}
 
-	db := client.Database("mgm_lab")
-	coll := db.Collection("todos")
-
-	return &MongoStorage{
-		coll:     coll,
-		maxItems: maxItems,
-	}
+	return NewMongoStorageFromCollection(client.Database("mgm_lab").Collection("todos"), maxItems)
 }

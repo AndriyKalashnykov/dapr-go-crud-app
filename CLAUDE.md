@@ -6,7 +6,7 @@
 
 ## Tech Stack
 
-- **Language**: Go 1.26.1 (pinned in `.mise.toml`)
+- **Language**: Go 1.26.2 (pinned in `.mise.toml`)
 - **HTTP**: Gin
 - **Distributed runtime**: Dapr Go SDK
 - **Storage**: Redis (Dapr state store + pub/sub broker), MongoDB 8.0 (alternative crud-app backend)
@@ -49,14 +49,25 @@ Tool versions live in `.mise.toml` and are tracked by Renovate's native `mise` m
 make help             # List all targets
 make deps             # Install mise + every pinned tool from .mise.toml
 make build            # Compile all 10 binaries
-make test             # go test -race ./... (no _test.go files exist yet)
+make test             # Unit tests: go test -race ./... (seconds, no infra)
+make integration-test # Testcontainers: go test -race -tags=integration -v ./... (Mongo via Testcontainers; needs Docker)
+make e2e              # Full chain: kind-up + dapr-install + e2e-redis-deploy + e2e-apply + e2e-smoke (minutes, needs Docker)
+make e2e-smoke        # Smoke-only against an already-deployed cluster (CI-style)
 make static-check     # Composite gate: format + lint + lint-ci + shellcheck + sec + vulncheck + secrets + trivy-fs + trivy-config + mermaid-lint
-make ci               # Full local pipeline: deps + static-check + test + build
+make ci               # Full local pipeline: deps + static-check + test + integration-test + build
 make ci-run           # Run GitHub Actions workflow locally via act
 make clean            # Remove .bin and coverage output
 make deps-prune       # go mod tidy
 make deps-prune-check # Verify go.mod/go.sum tidy (CI gate)
 ```
+
+Three-layer test pyramid:
+
+| Layer | Target | Runtime | Infra |
+|-------|--------|---------|-------|
+| Unit | `make test` | seconds | none |
+| Integration | `make integration-test` | tens of seconds | Docker (Testcontainers) |
+| E2E | `make e2e` / `make e2e-smoke` | minutes | KinD + Dapr Helm + Redis Helm |
 
 ## Run Locally
 
@@ -89,8 +100,10 @@ Jobs (with explicit dependency edges):
 1. **`changes`** — `dorny/paths-filter` (SHA-pinned). Outputs `code` = true on any non-Markdown change. Downstream jobs are skipped on doc-only updates.
 2. **`static-check`** — `needs: [changes]`, gated by `code`. Runs `make static-check`.
 3. **`build`** — `needs: [changes, static-check]`. Runs `make build`, uploads `.bin/` artifacts.
-4. **`test`** — `needs: [changes, static-check]`. Runs `make test`.
-5. **`ci-pass`** — `needs: [changes, static-check, build, test]`, `if: always()`. Aggregator that fails if any required job failed/cancelled. Single status check to require in branch protection.
+4. **`test`** — `needs: [changes, static-check]`. Runs `make test` (unit).
+5. **`integration-test`** — `needs: [changes, static-check]`. Runs `make integration-test` (Testcontainers Mongo + httptest).
+6. **`e2e`** — `needs: [changes, build]`. Provisions KinD via `helm/kind-action`, installs Dapr + Redis via Helm, applies manifests, runs `make e2e-smoke`. Diagnostic dump on failure.
+7. **`ci-pass`** — `needs: [changes, static-check, build, test, integration-test, e2e]`, `if: always()`. Aggregator that fails if any required job failed/cancelled. Single status check to require in branch protection.
 
 Concurrency: `cancel-in-progress: true`. Permissions: `contents: read` (jobwise). Setup is via `jdx/mise-action` (no `actions/setup-go` — mise provides Go).
 

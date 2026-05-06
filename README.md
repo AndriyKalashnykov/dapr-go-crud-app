@@ -35,7 +35,7 @@ Rel(crud, mongo, "Optional storage backend")
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
-| Language | Go 1.26.1 | First-class Dapr Go SDK; static binary deploys cleanly with `ko`. |
+| Language | Go 1.26.2 | First-class Dapr Go SDK; static binary deploys cleanly with `ko`. |
 | HTTP routing | Gin | Minimal, well-known router with low boilerplate for sample apps. |
 | Distributed runtime | Dapr Go SDK | Sidecar abstracts state store, pub/sub, and service invocation behind a single API. |
 | State store + broker | Redis | Single backing store for both `statestore` and `pubsub` Dapr components — one Helm chart in CI/dev. |
@@ -62,7 +62,7 @@ make ci        # full local pipeline: deps + static-check + test + build
 | [Git](https://git-scm.com/) | latest | Source control |
 | [Docker](https://www.docker.com/) | latest | Required by `make mongo-run`, `make mermaid-lint`, and the act-based local CI |
 | [mise](https://mise.jdx.dev/) | latest | Cross-language version manager — installs Go, Node, and every static-analysis tool from `.mise.toml`; auto-installed by `make deps` |
-| [Go](https://go.dev/dl/) | 1.26.1 | Pinned in `.mise.toml`; installed by `mise install` |
+| [Go](https://go.dev/dl/) | 1.26.2 | Pinned in `.mise.toml`; installed by `mise install` |
 | [Node.js](https://nodejs.org/) | 24 | Used by `make renovate-validate` (`npx renovate`); installed by `mise install` |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | latest | Required by `make deploy` |
 | [Helm](https://helm.sh/) | latest | Required by `make redis-deploy` |
@@ -184,7 +184,10 @@ Run `make help` to see all targets. They are grouped here for reference.
 
 | Target | Description |
 |--------|-------------|
-| `make test` | `go test -race ./...` (currently no `_test.go` files exist; see [Test coverage](#test-coverage) below) |
+| `make test` | Unit tests — `go test -race ./...` (seconds; no infra) |
+| `make integration-test` | Integration tests against real backends via Testcontainers — `go test -race -tags=integration -v ./...` (tens of seconds; requires Docker) |
+| `make e2e` | Full e2e — `kind-up` + `dapr-install` + `e2e-redis-deploy` + `e2e-apply` + `e2e-smoke` (minutes; requires Docker) |
+| `make e2e-smoke` | Smoke assertions only against an already-deployed cluster (CI-style invocation) |
 
 ### Static analysis (composite gate)
 
@@ -223,6 +226,12 @@ Run `make help` to see all targets. They are grouped here for reference.
 | `make rollout` | Restart `crud-app` and `timeline-app` pods |
 | `make app-logs` | Tail `crud-app` logs |
 | `make mongo-run` | Run MongoDB locally in Docker (alternative storage backend) |
+| `make kind-up` | Create the local KinD cluster (idempotent) |
+| `make kind-down` | Delete the local KinD cluster |
+| `make dapr-install` | Install Dapr control plane via Helm into the kind cluster |
+| `make dapr-uninstall` | Uninstall Dapr control plane |
+| `make e2e-redis-deploy` | Helm-install Redis into the kind cluster |
+| `make e2e-apply` | Apply Dapr config + components + Deployments into the kind cluster (context-pinned) |
 
 ### CI
 
@@ -254,8 +263,10 @@ Runs on every push to `main`, on `v*` tags, on pull requests, and via `workflow_
 | `changes` | All triggers | `dorny/paths-filter` decides whether code paths changed (skips doc-only updates) |
 | `static-check` | `needs: [changes]`, only if `code` changed | `make static-check` (composite gate) |
 | `build` | `needs: [changes, static-check]` | `make build` + upload `.bin/` artifacts |
-| `test` | `needs: [changes, static-check]` | `make test` |
-| `ci-pass` | `needs: [changes, static-check, build, test]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Use this as the single required-status-check rule. |
+| `test` | `needs: [changes, static-check]` | `make test` (unit) |
+| `integration-test` | `needs: [changes, static-check]` | `make integration-test` (Testcontainers) |
+| `e2e` | `needs: [changes, build]` | `helm/kind-action` → `make dapr-install` → `make e2e-redis-deploy` → `make e2e-apply` → `make e2e-smoke`; on failure dumps pod state + logs |
+| `ci-pass` | `needs: [changes, static-check, build, test, integration-test, e2e]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Use this as the single required-status-check rule. |
 
 Concurrency: `cancel-in-progress: true`. Permissions: `contents: read` (jobwise; `changes` adds `pull-requests: read`).
 
@@ -275,12 +286,17 @@ No additional secrets or variables are required. Image publishing (`make push`) 
 
 ## Test coverage
 
-`make test` currently exits 0 trivially — no `_test.go` files exist yet. Test scaffolding (unit, integration, e2e against KinD + Dapr) is tracked separately and produced by running `/test-coverage-analysis` directly. Phases involved:
+Three layers, three Makefile targets, three CI jobs:
 
-1. Add unit tests for `pkg/storage` (in-mem maxItems eviction), `pkg/timeline`, `pkg/todos`.
-2. Add `make integration-test` against Testcontainers (Redis + Mongo + daprd standalone).
-3. Add `make e2e` that spins up KinD, installs Dapr via Helm, applies the manifests, and asserts on the pub/sub round-trip + service-invocation chain.
-4. Wire `integration-test` and `e2e` jobs into `ci.yml` (depending on `[build]`), then add them to the `ci-pass` aggregator's `needs:` list.
+| Layer | Command | Covers | Runtime | Infra |
+|-------|---------|--------|---------|-------|
+| Unit | `make test` | `pkg/storage` (in-mem FIFO eviction), `pkg/timeline` (Handle branches), `pkg/server` (cleanupLoop / generateLoadLoop ticker injection), `cmd/timeline` (CloudEvent vs raw decode + handler), `cmd/app` (`selectStorage` routing) | seconds | none |
+| Integration | `make integration-test` | `pkg/storage.MongoStorage` (Testcontainers `mongo:8.0`, CRUD round-trip + `_id`/`todoId` mapping + maxItems cap), `pkg/server` HTTP handlers (httptest.NewServer + InMemoryStorage + 400 on bad JSON / missing required field) | tens of seconds | Docker |
+| E2E | `make e2e` (or `make e2e-smoke` against running cluster) | crud-app HTTP CRUD round-trip; pubsub `crud-app → todos → timeline-app`; service-invocation `service-a → service-b`; pubsub fan-out `events → consumer + service-c`; negatives (malformed JSON, missing required, 404) | minutes | KinD + Dapr Helm + Bitnami Redis |
+
+`make ci` runs unit + integration + build + static-check end-to-end. The e2e job runs only in CI (and on demand locally via `make e2e`) because it provisions a real cluster.
+
+DaprStorage integration coverage is currently **deferred** (would require running `daprd` standalone alongside Testcontainers Redis); the e2e layer covers it through the live cluster path.
 
 ## Contributing
 

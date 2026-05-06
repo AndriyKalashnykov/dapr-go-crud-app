@@ -12,15 +12,48 @@ spec:
       labels:
         app: service-b
       annotations:
-        dapr.io/enabled: "true"
-        dapr.io/app-id: "service-b"
-        dapr.io/app-port: "8080"
+        dapr.io/enabled: 'true'
+        dapr.io/app-id: service-b
+        dapr.io/app-port: '8080'
         dapr.io/config: dapr-go-crud-app
-        dapr.io/log-as-json: "false"
-        dapr.io/enable-api-logging: "true"
-        dapr.io/log-level: "debug"
+        dapr.io/log-as-json: 'false'
+        dapr.io/enable-api-logging: 'true'
+        dapr.io/log-level: debug
     spec:
       containers:
       - name: service-b
         image: andriykalashnykov/service-b-9acac2ae91b0dae0733e54792b512b0c:latest
         imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: tmp
+        emptyDir: {}

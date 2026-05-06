@@ -12,13 +12,31 @@ spec:
       labels:
         app: datagen-app
       annotations:
-        dapr.io/enabled: "true"
-        dapr.io/app-id: "datagen-app"
+        dapr.io/enabled: 'true'
+        dapr.io/app-id: datagen-app
         dapr.io/config: dapr-go-crud-app
-        dapr.io/log-as-json: "true"
+        dapr.io/log-as-json: 'true'
     spec:
       containers:
       - name: datagen-app
         image: andriykalashnykov/datagen-30887c0ed1c30f9d8b144a6c421055bf:latest
         imagePullPolicy: Always
-
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: tmp
+        emptyDir: {}

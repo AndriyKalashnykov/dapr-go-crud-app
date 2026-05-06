@@ -12,14 +12,33 @@ spec:
       labels:
         app: service-a
       annotations:
-        dapr.io/enabled: "true"
-        dapr.io/app-id: "service-a"
+        dapr.io/enabled: 'true'
+        dapr.io/app-id: service-a
         dapr.io/config: dapr-go-crud-app
-        dapr.io/log-as-json: "false"
-        dapr.io/enable-api-logging: "true"
-        dapr.io/log-level: "debug"
+        dapr.io/log-as-json: 'false'
+        dapr.io/enable-api-logging: 'true'
+        dapr.io/log-level: debug
     spec:
       containers:
       - name: service-a
         image: andriykalashnykov/service-a-248c5038910590005d59a42ce529f584:latest
         imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: tmp
+        emptyDir: {}

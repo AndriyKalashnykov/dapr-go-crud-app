@@ -12,28 +12,60 @@ spec:
       labels:
         app: crud-app
       annotations:
-        dapr.io/enabled: "true"
-        dapr.io/app-id: "crud-app"
-        dapr.io/app-port: "8080"
+        dapr.io/enabled: 'true'
+        dapr.io/app-id: crud-app
+        dapr.io/app-port: '8080'
         dapr.io/config: dapr-go-crud-app
-        dapr.io/sidecar-listen-addresses: "0.0.0.0"
-        dapr.io/log-as-json: "true"
+        dapr.io/sidecar-listen-addresses: 0.0.0.0
+        dapr.io/log-as-json: 'true'
     spec:
       containers:
       - name: crud-app
         image: andriykalashnykov/cmd-6546bb5bccd43ba1fbe91fa0d6bca6d4:latest
         imagePullPolicy: Always
         args:
-          - "serve"
-          - "-connStr"
-          - "dapr"
-          - "-maxItems"
-          - "20"
-          - "-cleanupIntervalSeconds"
-          - "600"
+        - serve
+        - -connStr
+        - dapr
+        - -maxItems
+        - '20'
+        - -cleanupIntervalSeconds
+        - '600'
         ports:
         - containerPort: 8080
-
+        readinessProbe:
+          httpGet:
+            path: /api/v1/todos
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /api/v1/todos
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 kind: Service
 apiVersion: v1
@@ -45,6 +77,5 @@ spec:
   type: ClusterIP
   ports:
   - name: http
-    port:  8080
-    targetPort:  8080
-
+    port: 8080
+    targetPort: 8080
