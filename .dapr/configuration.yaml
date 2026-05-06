@@ -9,10 +9,21 @@ spec:
   #   samplingRate: "1"
   #   zipkin:
   #     endpointAddress: "http://zipkin:9411/api/v2/spans"
+  # mTLS is disabled here to match `make dapr-install`'s
+  # `--set global.mtls.enabled=false`. Dapr 1.17+ requires
+  # `controlPlaneTrustDomain` AND `sentryAddress` whenever `mtls.enabled: true`,
+  # so to re-enable mTLS for production:
+  #   1. Drop `--set global.mtls.enabled=false` from `make dapr-install` (or
+  #      override per-environment via Helm values).
+  #   2. Set the block below to:
+  #        mtls:
+  #          enabled: true
+  #          allowedClockSkew: 15m
+  #          workloadCertTTL: 24h
+  #          controlPlaneTrustDomain: cluster.local
+  #          sentryAddress: dapr-sentry.dapr-system.svc:443
   mtls:
-    allowedClockSkew: 15m
-    enabled: true
-    workloadCertTTL: 24h
+    enabled: false
   # api:
     # allowed:
     # - name: state
@@ -21,4 +32,4 @@ spec:
     # - name: publish
     #   version: v1
     #   protocol: http
-    # TODO enable service-to-service invocation and configure ACLs 
+    # TODO enable service-to-service invocation and configure ACLs
