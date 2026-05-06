@@ -109,14 +109,23 @@ else
 fi
 
 # ---- 3. Service-invocation chain (service-a → service-b) ----
-# service-a polls service-b/method/hello in a loop and logs 'Order passed:'
-# on each successful invocation. Tail the log, count occurrences over 10s.
-echo "==> Asserting service-a → service-b invocation chain"
-invocations=$("${KUBECTL[@]}" logs -l app=service-a --tail=500 --since=120s 2>/dev/null | grep -c 'Order passed' || true)
+# service-a invokes service-b/method/hello on a 10-second ticker and logs
+# 'Order passed:' on each successful invocation. Pods may have only just
+# reached Ready, so poll up to 60s for the first invocation to fire +
+# round-trip through both Dapr sidecars.
+echo "==> Asserting service-a → service-b invocation chain (poll up to 60s)"
+invocations=0
+for _ in $(seq 1 30); do
+  invocations=$("${KUBECTL[@]}" logs -l app=service-a --tail=500 2>/dev/null | grep -c 'Order passed' || true)
+  if [ "$invocations" -ge 1 ]; then
+    break
+  fi
+  sleep 2
+done
 if [ "$invocations" -ge 1 ]; then
   pass "service-a logged ${invocations} successful service-b invocations"
 else
-  fail "service-a has zero 'Order passed' lines in the last 120s — invocation chain broken"
+  fail "service-a has zero 'Order passed' lines after 60s of polling — invocation chain broken"
 fi
 
 # ---- 4. Pub/sub fan-out: events topic → consumer + service-c ----
