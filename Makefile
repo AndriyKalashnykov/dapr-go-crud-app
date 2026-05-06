@@ -142,7 +142,7 @@ shellcheck: deps
 
 #mermaid-lint: @ Validate ```mermaid blocks in markdown via official CLI
 mermaid-lint:
-	@bash scripts/mermaid-lint.sh
+	@MERMAID_CLI_VERSION=$(MERMAID_CLI_VERSION) bash scripts/mermaid-lint.sh
 
 #static-check: @ Composite quality gate (lint + ci + sec + vulncheck + secrets + trivy + mermaid)
 static-check: format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint
@@ -390,7 +390,8 @@ ci: deps static-check test integration-test build
 ci-run: deps
 	@act push --container-architecture linux/amd64 \
 		-P ubuntu-24.04=catthehacker/ubuntu:$(ACT_UBUNTU_VERSION) \
-		--artifact-server-path /tmp/act-artifacts
+		--artifact-server-path /tmp/act-artifacts \
+		--bind
 
 .PHONY: help deps test integration-test build clean lint format format-check sec vulncheck secrets \
 	trivy-fs trivy-config lint-ci shellcheck mermaid-lint static-check run update update-minor \
