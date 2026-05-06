@@ -10,8 +10,23 @@ import (
 	"github.com/google/uuid"
 )
 
+// daprStateClient is the subset of dapr.Client that DaprStorage uses.
+// Defined locally (not in the SDK) so unit tests inject a fake without
+// implementing the full 50+-method dapr.Client interface — Pattern B
+// from /test-coverage-analysis. The concrete `dapr.Client` returned by
+// `dapr.NewClient()` is a superset and satisfies this interface
+// implicitly.
+type daprStateClient interface {
+	SaveBulkState(ctx context.Context, store string, items ...*dapr.SetStateItem) error
+	GetState(ctx context.Context, store, key string, meta map[string]string) (*dapr.StateItem, error)
+	SaveState(ctx context.Context, store, key string, data []byte, meta map[string]string, so ...dapr.StateOption) error
+	DeleteState(ctx context.Context, store, key string, meta map[string]string) error
+	GetBulkState(ctx context.Context, store string, keys []string, meta map[string]string, parallelism int32) ([]*dapr.BulkStateItem, error)
+	PublishEvent(ctx context.Context, pubsubName, topicName string, data any, opts ...dapr.PublishEventOption) error
+}
+
 type DaprStorage struct {
-	client   dapr.Client
+	client   daprStateClient
 	maxItems int
 }
 
@@ -159,7 +174,7 @@ func (s *DaprStorage) ListAll() ([]*todos.Todo, error) {
 	return all, nil
 }
 
-func (s *DaprStorage) newDaprClient() dapr.Client {
+func (s *DaprStorage) newDaprClient() daprStateClient {
 	if s.client == nil {
 		client, err := dapr.NewClient()
 		if err != nil {
@@ -170,6 +185,16 @@ func (s *DaprStorage) newDaprClient() dapr.Client {
 	return s.client
 }
 
+// NewDaprStorage returns a DaprStorage with lazy Dapr-sidecar dialing.
+// The client is created on first method call via `dapr.NewClient()`,
+// which reads `DAPR_GRPC_PORT` / `DAPR_GRPC_ENDPOINT` env vars.
 func NewDaprStorage(maxItems int) *DaprStorage {
 	return &DaprStorage{maxItems: maxItems}
+}
+
+// NewDaprStorageWithClient wraps an injected daprStateClient. Tests
+// pass an in-memory fake; production goes through NewDaprStorage which
+// dials a real sidecar.
+func NewDaprStorageWithClient(client daprStateClient, maxItems int) *DaprStorage {
+	return &DaprStorage{client: client, maxItems: maxItems}
 }
