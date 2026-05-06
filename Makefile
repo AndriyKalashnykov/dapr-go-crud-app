@@ -216,13 +216,22 @@ zipkin-deploy:
 	@kubectl create deployment zipkin --image openzipkin/zipkin:$(ZIPKIN_VERSION) -n $(APP_NAMESPACE)
 	@kubectl expose deployment zipkin --type ClusterIP --port 9411 -n $(APP_NAMESPACE)
 
-#redis-deploy: @ Deploy Redis with Helm (standalone)
+#redis-deploy: @ Deploy upstream redis (standalone) into the current namespace
 redis-deploy:
-	@helm upgrade --install redis bitnami/redis -n $(APP_NAMESPACE) --set architecture=standalone
-
-#redis-deploy-replicated: @ Deploy Redis with Helm (replication)
-redis-deploy-replicated:
-	@helm upgrade --install redis bitnami/redis -n $(APP_NAMESPACE) --set replica.replicaCount=1
+	@kubectl create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	@# Generate the redis-password Secret only if it doesn't already exist —
+	@# regenerating on every run would break the running Redis (server boots
+	@# with the old password; new clients try the new). Per /security:
+	@# `--from-file=KEY=/dev/stdin` (stdin form) keeps the value out of argv.
+	@if ! kubectl get secret redis -n $(APP_NAMESPACE) >/dev/null 2>&1; then \
+		printf '%s' "$$(openssl rand -base64 16)" | \
+			kubectl create secret generic redis -n $(APP_NAMESPACE) \
+				--from-file=redis-password=/dev/stdin \
+				--dry-run=client -o yaml | \
+			kubectl apply -f -; \
+	fi
+	@kubectl apply -f deploy/redis.yaml -n $(APP_NAMESPACE)
+	@kubectl rollout status deployment/redis -n $(APP_NAMESPACE) --timeout=120s
 
 #apply: @ Apply Dapr config and deployments (no image push)
 apply:
@@ -308,12 +317,18 @@ dapr-install:
 dapr-uninstall:
 	@$(HELM_E2E) uninstall dapr --namespace dapr-system || true
 
-#e2e-redis-deploy: @ Deploy Redis into the kind cluster (Bitnami chart)
+#e2e-redis-deploy: @ Deploy upstream redis (standalone) into the kind cluster
 e2e-redis-deploy:
-	@helm repo add bitnami https://charts.bitnami.com/bitnami --force-update >/dev/null
-	@helm repo update >/dev/null
 	@$(KUBECTL_E2E) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_E2E) apply -f -
-	@$(HELM_E2E) upgrade --install redis bitnami/redis -n $(APP_NAMESPACE) --set architecture=standalone --wait
+	@if ! $(KUBECTL_E2E) get secret redis -n $(APP_NAMESPACE) >/dev/null 2>&1; then \
+		printf '%s' "$$(openssl rand -base64 16)" | \
+			$(KUBECTL_E2E) create secret generic redis -n $(APP_NAMESPACE) \
+				--from-file=redis-password=/dev/stdin \
+				--dry-run=client -o yaml | \
+			$(KUBECTL_E2E) apply -f -; \
+	fi
+	@$(KUBECTL_E2E) apply -f deploy/redis.yaml -n $(APP_NAMESPACE)
+	@$(KUBECTL_E2E) rollout status deployment/redis -n $(APP_NAMESPACE) --timeout=120s
 
 #e2e-apply: @ Apply Dapr config and deployments into the kind cluster (patches imagePullPolicy for ko-loaded images)
 e2e-apply:
@@ -333,8 +348,11 @@ e2e-apply:
 	@# of :latest from GHCR). For e2e the images are kind-loaded locally — Always
 	@# triggers an unwanted GHCR pull (and 403 if the package doesn't exist yet).
 	@# Patch to `IfNotPresent` at apply-time so KinD uses the loaded copies.
+	@# Skip deploy/redis.yaml — already applied by `e2e-redis-deploy`; re-applying
+	@# a patched copy would trigger a Recreate-strategy restart of Redis mid-flow.
 	@tmpdir=$$(mktemp -d) && trap 'rm -rf "$$tmpdir"' EXIT && \
 		for f in deploy/*.yaml; do \
+			case "$$(basename "$$f")" in redis.yaml) continue;; esac; \
 			sed 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/g' "$$f" > "$$tmpdir/$$(basename "$$f")"; \
 		done && \
 		$(KUBECTL_E2E) apply -f "$$tmpdir" -n $(APP_NAMESPACE)
@@ -377,7 +395,7 @@ ci-run: deps
 .PHONY: help deps test integration-test build clean lint format format-check sec vulncheck secrets \
 	trivy-fs trivy-config lint-ci shellcheck mermaid-lint static-check run update update-minor \
 	image-build image-scan image-smoke-test image-sign push rollout app-logs mongo-run dapr-run zipkin-deploy \
-	redis-deploy redis-deploy-replicated apply deploy deploy-full release \
+	redis-deploy apply deploy deploy-full release \
 	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run \
 	kind-up kind-down dapr-install dapr-uninstall \
 	e2e-redis-deploy e2e-apply e2e-load-images e2e e2e-smoke
