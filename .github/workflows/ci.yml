@@ -120,6 +120,9 @@ jobs:
       - name: Deploy Redis
         run: make e2e-redis-deploy
 
+      - name: Build and load images into KinD (ko --push=false)
+        run: make e2e-load-images
+
       - name: Apply manifests (Dapr config + components + Deployments)
         run: make e2e-apply
 

@@ -315,20 +315,32 @@ e2e-redis-deploy:
 	@$(KUBECTL_E2E) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_E2E) apply -f -
 	@$(HELM_E2E) upgrade --install redis bitnami/redis -n $(APP_NAMESPACE) --set architecture=standalone --wait
 
-#e2e-apply: @ Apply Dapr config and deployments into the kind cluster
+#e2e-apply: @ Apply Dapr config and deployments into the kind cluster (patches imagePullPolicy for ko-loaded images)
 e2e-apply:
 	@$(KUBECTL_E2E) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_E2E) apply -f -
 	@$(KUBECTL_E2E) apply -f .dapr/configuration.yaml -n $(APP_NAMESPACE)
 	@$(KUBECTL_E2E) apply -f .dapr/components -n $(APP_NAMESPACE)
-	@$(KUBECTL_E2E) apply -f deploy -n $(APP_NAMESPACE)
+	@# deploy/*.yaml ship with `imagePullPolicy: Always` for prod (force-refresh
+	@# of :latest from GHCR). For e2e the images are kind-loaded locally — Always
+	@# triggers an unwanted GHCR pull (and 403 if the package doesn't exist yet).
+	@# Patch to `IfNotPresent` at apply-time so KinD uses the loaded copies.
+	@tmpdir=$$(mktemp -d) && trap 'rm -rf "$$tmpdir"' EXIT && \
+		for f in deploy/*.yaml; do \
+			sed 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/g' "$$f" > "$$tmpdir/$$(basename "$$f")"; \
+		done && \
+		$(KUBECTL_E2E) apply -f "$$tmpdir" -n $(APP_NAMESPACE)
 
 #e2e-load-images: @ ko-build images and load into the kind cluster (no registry push)
 e2e-load-images:
-	@KO_DOCKER_REPO=kind.local KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ko publish --base-import-paths --tags=e2e --push=false $(addprefix ./cmd/,$(BINARY_DIRS))
+	@# Build with the SAME repo/tag the deploy YAMLs reference so locally-loaded
+	@# images satisfy the spec without a YAML rewrite. ko's KIND_CLUSTER_NAME
+	@# integration loads the produced image into every node of the named cluster.
+	@KO_DOCKER_REPO=$(KO_DOCKER_REPO) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ko publish --base-import-paths --tags=latest --push=false \
+		$(addprefix ./cmd/,$(BINARY_DIRS))
 
-#e2e: @ Bring up the full stack (KinD + Dapr + Redis + apps) and run the smoke test
-e2e: kind-up dapr-install e2e-redis-deploy e2e-apply e2e-smoke
+#e2e: @ Bring up the full stack (KinD + Dapr + Redis + ko-loaded apps) and run the smoke test
+e2e: kind-up dapr-install e2e-redis-deploy e2e-load-images e2e-apply e2e-smoke
 
 #e2e-smoke: @ Run the smoke assertions against an already-deployed cluster
 e2e-smoke: deps
