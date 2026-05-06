@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * 0'
   workflow_dispatch:
 
+concurrency:
+  group: cleanup-runs
+  cancel-in-progress: false
+
 permissions:
   actions: write
 
@@ -14,13 +18,11 @@ jobs:
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       RETAIN_DAYS: 7
       KEEP_MINIMUM: 5
     steps:
-      - name: Delete old workflow runs
-        run: |
-          CUTOFF=$(date -u -d "$RETAIN_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
-          gh run list --repo "${{ github.repository }}" \
-            --json databaseId,createdAt --limit 200 \
-            --jq "sort_by(.createdAt) | reverse | .[$KEEP_MINIMUM:] | .[] | select(.createdAt < \\"$CUTOFF\\") | .databaseId" \
-          | xargs -r -I{} gh run delete {} --repo "${{ github.repository }}"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Prune old runs
+        run: make cleanup-runs

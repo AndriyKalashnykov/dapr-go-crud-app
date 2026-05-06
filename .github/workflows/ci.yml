@@ -16,44 +16,55 @@ permissions:
 
 jobs:
 
-  static-check:
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - id: filter
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
-          fetch-depth: 0
+          # 'base' is silently ignored on pull_request events; only set it on push.
+          base: ${{ github.event_name == 'push' && 'main' || '' }}
+          filters: |
+            code:
+              - '**'
+              - '!**.md'
+              - '!LICENSE'
 
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Lint
-        run: make lint
-
-  build:
-    needs: [static-check]
+  static-check:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+
+      - name: Static check
+        run: make static-check
+
+  build:
+    needs: [changes, static-check]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
 
       - name: Build
         run: make build
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        continue-on-error: true
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: binaries
           include-hidden-files: true
@@ -61,18 +72,33 @@ jobs:
           retention-days: 14
 
   test:
-    needs: [static-check]
+    needs: [changes, static-check]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
 
       - name: Test
         run: make test
+
+  ci-pass:
+    if: always()
+    needs: [changes, static-check, build, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Aggregate job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -e
+          echo "$NEEDS_JSON" | jq -r 'to_entries | .[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS_JSON" | jq -e 'to_entries | map(select(.value.result == "failure" or .value.result == "cancelled")) | length == 0' >/dev/null; then
+            echo "All jobs passed or were skipped (doc-only change)."
+          else
+            echo "::error::At least one required job failed or was cancelled."
+            exit 1
+          fi

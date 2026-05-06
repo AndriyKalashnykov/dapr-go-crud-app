@@ -4,6 +4,12 @@
     "config:best-practices",
     ":semanticCommitType(chore)"
   ],
+  "enabledManagers": [
+    "gomod",
+    "github-actions",
+    "mise",
+    "custom.regex"
+  ],
   "postUpdateOptions": [
     "gomodTidy"
   ],
@@ -17,7 +23,7 @@
   "prHourlyLimit": 0,
   "platformAutomerge": true,
   "automerge": true,
-  "automergeType": "branch",
+  "automergeType": "pr",
   "automergeStrategy": "squash",
   "ignoreTests": false,
   "vulnerabilityAlerts": {
@@ -30,87 +36,39 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track golangci-lint version in Makefile",
+      "description": "Update Makefile tool versions via inline renovate comments",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
-        "GOLANGCI_VERSION\\s*:=\\s*(?<currentValue>.*?)\\n"
-      ],
-      "depNameTemplate": "golangci/golangci-lint",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "description": "Track ko version in Makefile",
-      "managerFilePatterns": ["/^Makefile$/"],
-      "matchStrings": [
-        "KO_VERSION\\s*:=\\s*(?<currentValue>.*?)\\n"
-      ],
-      "depNameTemplate": "ko-build/ko",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "description": "Track act version in Makefile",
-      "managerFilePatterns": ["/^Makefile$/"],
-      "matchStrings": [
-        "ACT_VERSION\\s*:=\\s*(?<currentValue>.*?)\\n"
-      ],
-      "depNameTemplate": "nektos/act",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "description": "Track nvm version in Makefile",
-      "managerFilePatterns": ["/^Makefile$/"],
-      "matchStrings": [
-        "NVM_VERSION\\s*:=\\s*(?<currentValue>.*?)\\n"
-      ],
-      "depNameTemplate": "nvm-sh/nvm",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)( versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*:=\\s*(?<currentValue>[^\\s]+)"
+      ]
     }
   ],
   "packageRules": [
     {
       "description": "Wait 3 days before automerging major updates",
-      "matchUpdateTypes": [
-        "major"
-      ],
+      "matchUpdateTypes": ["major"],
       "minimumReleaseAge": "3 days"
     },
     {
       "description": "Group GitHub Actions into one PR",
-      "matchManagers": [
-        "github-actions"
-      ],
+      "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions"
     },
     {
       "description": "Bump Go version in go.mod to latest patch",
-      "matchManagers": [
-        "gomod"
-      ],
-      "matchDepNames": [
-        "go"
-      ],
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
       "rangeStrategy": "bump"
     },
     {
       "description": "Group Dapr SDK dependencies",
-      "matchPackageNames": [
-        "/^github.com\\/dapr/"
-      ],
+      "matchPackageNames": ["/^github.com\\/dapr/"],
       "groupName": "Dapr SDK"
     },
     {
-      "description": "Group Makefile tool versions",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "groupName": "Makefile tools"
+      "description": "Group all toolchain pins (Makefile + .mise.toml) into one PR",
+      "matchManagers": ["custom.regex", "mise"],
+      "groupName": "Toolchain"
     }
   ]
 }

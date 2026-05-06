@@ -2,97 +2,118 @@
 
 ## Project Overview
 
-Go microservices project demonstrating Dapr (Distributed Application Runtime) features including CRUD operations, pub/sub messaging, service invocation, and timeline tracking. Deploys to Kubernetes using ko for image building.
+10-binary Go microservice topology demonstrating Dapr building blocks (state store, pub/sub, service invocation, resiliency) on Kubernetes. Container images built with `ko` (no Dockerfile). Toolchain managed end-to-end by `mise` (`.mise.toml`).
 
 ## Tech Stack
 
-- **Language**: Go 1.26.1
-- **Framework**: Gin (HTTP), Dapr Go SDK
-- **Infrastructure**: Kubernetes, Redis (state store), Dapr sidecars
-- **Build**: ko (container images), Make (task runner)
-- **CI**: GitHub Actions
+- **Language**: Go 1.26.1 (pinned in `.mise.toml`)
+- **HTTP**: Gin
+- **Distributed runtime**: Dapr Go SDK
+- **Storage**: Redis (Dapr state store + pub/sub broker), MongoDB 8.0 (alternative crud-app backend)
+- **Container build**: ko 0.18
+- **Orchestration**: Kubernetes (Dapr injector + sidecars)
+- **Toolchain manager**: mise — single source of truth for Go, Node, golangci-lint, ko, act, gosec, gitleaks, trivy, actionlint, shellcheck, govulncheck
+- **CI**: GitHub Actions (composite `make static-check` gate, `dorny/paths-filter` change detector, `ci-pass` aggregator)
+- **Static analysis**: golangci-lint (gocritic enabled), gosec, govulncheck, gitleaks, trivy (fs + config), actionlint, shellcheck, mermaid-cli
 
 ## Project Structure
 
 ```
-cmd/           - Application entry points (app, consumer, datagen, dummy, errorgen, publisher, service-a/b/c, timeline)
-pkg/           - Shared packages
-deploy/        - Kubernetes manifests
-.dapr/         - Dapr configuration and components
+cmd/           - 10 entry points: app, consumer, datagen, dummy, errorgen, publisher, service-a/b/c, timeline
+pkg/           - Shared packages: server, storage, timeline, todos
+deploy/        - Kubernetes manifests (one per app)
+.dapr/         - Dapr configuration + components (pubsub, state, resiliency, subscriptions)
 .bin/          - Build output (gitignored)
 .github/       - CI workflows
+scripts/       - Helper scripts (mermaid-lint extractor)
+.mise.toml     - Toolchain pins (go, node, every static-analysis binary)
 ```
 
-## Key Variables
+## Key Config
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `GOLANGCI_VERSION` | `2.11.4` | golangci-lint version |
-| `KO_VERSION` | `0.18.1` | ko image builder version |
-| `ACT_VERSION` | `0.2.87` | act (local CI) version |
-| `NVM_VERSION` | `0.40.4` | nvm version for Renovate |
-| `NODE_VERSION` | `24` | Node.js version for nvm |
-| `GVM_SHA` | `dd6525...` | gvm commit SHA (v1.0.22) |
+| `KO_DOCKER_REPO` | `docker.io/andriykalashnykov` (override via env) | Default ko publish target |
 | `APP_NAMESPACE` | `crud-app` | Kubernetes namespace |
+| `MONGO_VERSION` | `8.0` | Renovate-tracked Docker image |
+| `ZIPKIN_VERSION` | `3.6` | Renovate-tracked Docker image |
+| `ACT_UBUNTU_VERSION` | `act-24.04` | Renovate-tracked `catthehacker/ubuntu` image used by `make ci-run` |
+| `MERMAID_CLI_VERSION` | `11.4.2` | Renovate-tracked mermaid-cli Docker image |
+| `RETAIN_DAYS` / `KEEP_MINIMUM` | 7 / 5 | `cleanup-runs.yml` retention knobs |
+
+Tool versions live in `.mise.toml` and are tracked by Renovate's native `mise` manager. Inline `# renovate:` comments in the Makefile cover the Docker-image constants above via the generic `custom.regex` manager.
 
 ## Build & Test
 
 ```bash
-make help             # List all available targets
-make deps             # Check and install required dependencies (uses gvm for Go)
-make deps-check       # Show required Go versions and gvm status
-make build            # Build all binaries
-make test             # Run tests with race detection
-make lint             # Run golangci-lint (includes gocritic via .golangci.yml)
-make format           # Format Go source files
-make ci               # Full CI pipeline (format, lint, test, build)
-make clean            # Remove build artifacts
-make deps-prune       # Remove unused Go dependencies
-make deps-prune-check # Verify no prunable dependencies (CI gate)
+make help             # List all targets
+make deps             # Install mise + every pinned tool from .mise.toml
+make build            # Compile all 10 binaries
+make test             # go test -race ./... (no _test.go files exist yet)
+make static-check     # Composite gate: format + lint + lint-ci + shellcheck + sec + vulncheck + secrets + trivy-fs + trivy-config + mermaid-lint
+make ci               # Full local pipeline: deps + static-check + test + build
+make ci-run           # Run GitHub Actions workflow locally via act
+make clean            # Remove .bin and coverage output
+make deps-prune       # go mod tidy
+make deps-prune-check # Verify go.mod/go.sum tidy (CI gate)
 ```
 
 ## Run Locally
 
 ```bash
-make run          # Run main app (requires Dapr)
-make dapr-run     # Run with Dapr sidecar
-make mongo-run    # Start MongoDB in Docker
+make run          # Run crud-app (requires Dapr sidecar)
+make dapr-run     # Run crud-app under `dapr run` (depends on build)
+make mongo-run    # Run MongoDB in Docker (alternative storage backend)
 ```
 
 ## Deploy
 
 ```bash
-make deploy       # Full stack deploy to Kubernetes
-make push         # Publish all images with ko
-make rollout      # Restart app pods
-make apply        # Apply Dapr config and deployments
+make redis-deploy   # Helm-install Redis (standalone)
+make deploy         # Apply Dapr config + components + manifests (no image rebuild)
+make deploy-full    # ko publish + redis + apply (one-shot)
+make rollout        # Restart crud-app + timeline-app pods
+make app-logs       # Tail crud-app logs
 ```
 
 ## CI/CD
 
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push to `main`, tags `v*`, pull requests, and via `workflow_call` (reusable).
+Two workflows under `.github/workflows/`:
 
-Jobs (separate, with dependency edges):
-1. **static-check** — Checkout, Setup Go, Lint (`make lint`)
-2. **build** (needs: static-check) — Checkout, Setup Go, Build (`make build`), upload artifacts
-3. **test** (needs: static-check) — Checkout, Setup Go, Test (`make test`)
+### `ci.yml`
 
-`build` and `test` run in parallel after `static-check` passes. Concurrency is set with `cancel-in-progress: true`. Permissions: `contents: read` (minimal).
+Triggers: push to `main`, `v*` tags, pull requests, and `workflow_call`.
 
-A separate cleanup workflow (`.github/workflows/cleanup-runs.yml`) removes old workflow runs weekly (Sunday cron) and supports manual trigger via `workflow_dispatch`. Permissions: `actions: write`.
+Jobs (with explicit dependency edges):
 
-Run CI locally: `make ci` (local pipeline) or `make ci-run` (GitHub Actions via act).
+1. **`changes`** — `dorny/paths-filter` (SHA-pinned). Outputs `code` = true on any non-Markdown change. Downstream jobs are skipped on doc-only updates.
+2. **`static-check`** — `needs: [changes]`, gated by `code`. Runs `make static-check`.
+3. **`build`** — `needs: [changes, static-check]`. Runs `make build`, uploads `.bin/` artifacts.
+4. **`test`** — `needs: [changes, static-check]`. Runs `make test`.
+5. **`ci-pass`** — `needs: [changes, static-check, build, test]`, `if: always()`. Aggregator that fails if any required job failed/cancelled. Single status check to require in branch protection.
+
+Concurrency: `cancel-in-progress: true`. Permissions: `contents: read` (jobwise). Setup is via `jdx/mise-action` (no `actions/setup-go` — mise provides Go).
+
+### `cleanup-runs.yml`
+
+Weekly (Sunday midnight UTC) plus `workflow_dispatch`. Calls `make cleanup-runs` so the same logic runs locally with `RETAIN_DAYS` / `KEEP_MINIMUM` overrides. Permissions: `actions: write`.
 
 ## Dependencies
 
-- gvm (Go Version Manager) — manages Go versions locally; `make deps` auto-installs gvm and required versions
-- docker (check with `make deps`)
-- golangci-lint, ko (auto-installed by `make deps`)
-- kubectl for Kubernetes deployment
-- Helm for Redis deployment
-- Dapr CLI for local development
+All toolchain (Go, Node, golangci-lint, ko, act, gosec, gitleaks, trivy, actionlint, shellcheck, govulncheck) is installed by `mise install` from `.mise.toml` — `make deps` does this automatically. The only host requirements are GNU Make, Git, and Docker.
 
-In CI, `actions/setup-go` provides Go — gvm is not needed.
+In CI, `jdx/mise-action` reads `.mise.toml` and installs the same tool set — no separate `actions/setup-go` step is needed.
+
+## Renovate
+
+`renovate.json` enables four managers:
+
+- `gomod` — go.mod
+- `github-actions` — workflow `uses:` refs
+- `mise` — `.mise.toml` (`aqua:` and `go:` backends are recognised; queried via GitHub tags)
+- `custom.regex` — Makefile constants annotated with `# renovate:` comments
+
+Toolchain bumps (Makefile + `.mise.toml`) are grouped into a single PR; Dapr SDK bumps grouped separately. Vulnerability fixes fast-tracked (`minimumReleaseAge: "0 days"`); major updates wait 3 days. `automergeType: "pr"` (compatible with branch-protection required-status-checks).
 
 ## Skills
 
@@ -101,8 +122,9 @@ Use the following skills when working on related files:
 | File(s) | Skill |
 |---------|-------|
 | `Makefile` | `/makefile` |
+| `.mise.toml` | `/makefile` |
 | `renovate.json` | `/renovate` |
 | `README.md` | `/readme` |
-| `.github/workflows/*.yml` | `/ci-workflow` |
+| `.github/workflows/*.{yml,yaml}` | `/ci-workflow` |
 
 When spawning subagents, always pass conventions from the respective skill into the agent's prompt.

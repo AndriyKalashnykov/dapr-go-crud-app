@@ -1,34 +1,40 @@
+SHELL := /bin/bash
+
 .DEFAULT_GOAL := help
+
+# Put mise shims first so recipe sub-shells see mise-managed binaries.
+export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
 
 APP_NAME       := dapr-go-crud-app
 CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
-# === Tool Versions (pinned) ===
-GOLANGCI_VERSION  := 2.11.4
-KO_VERSION        := 0.18.1
-ACT_VERSION       := 0.2.87
-NVM_VERSION       := 0.40.4
-NODE_VERSION      := 24
-GVM_SHA           := dd652539fa4b771840846f8319fad303c7d0a8d2 # v1.0.22
+# === Image versions (Renovate-tracked) ===
 
-# === Go Version Management (via gvm) ===
-# Parse all unique Go versions from every go.mod in the project
-GO_VERSIONS := $(shell find . -name 'go.mod' -exec grep -oP '^go \K[0-9.]+' {} \; | sort -uV)
-# Primary Go version from root go.mod
-GO_VERSION  := $(shell grep -oP '^go \K[0-9.]+' go.mod)
+# renovate: datasource=docker depName=mongo
+MONGO_VERSION := 8.0
 
-# Helper: run a command under the correct Go version
-# In CI, actions/setup-go provides Go directly — gvm is not needed.
-# Locally, gvm sets GOROOT/GOPATH/PATH in a subshell (does not persist across recipe lines).
-# go-exec detects which environment we're in and wraps commands accordingly.
-HAS_GVM := $(shell [ -s "$$HOME/.gvm/scripts/gvm" ] && echo true || echo false)
-define go-exec
-$(if $(filter true,$(HAS_GVM)),bash -c '. $$GVM_ROOT/scripts/gvm && gvm use go$(GO_VERSION) >/dev/null && $(1)',bash -c '$(1)')
-endef
+# renovate: datasource=docker depName=openzipkin/zipkin
+ZIPKIN_VERSION := 3.6
 
-export KO_DOCKER_REPO := docker.io/andriykalashnykov
+# renovate: datasource=docker depName=catthehacker/ubuntu versioning=loose
+ACT_UBUNTU_VERSION := act-24.04
+
+# renovate: datasource=docker depName=minlag/mermaid-cli
+MERMAID_CLI_VERSION := 11.4.2
+
+# === Registry (overridable from env) ===
+export KO_DOCKER_REPO ?= docker.io/andriykalashnykov
 
 APP_NAMESPACE ?= crud-app
+
+# Single source of truth for binary list. cmd/app.go is intentionally a
+# top-level file; every other cmd is a subdirectory.
+BINARY_DIRS := consumer datagen dummy errorgen publisher service-a service-b service-c timeline
+
+# Cleanup workflow knobs (override at invocation: make cleanup-runs RETAIN_DAYS=14)
+RETAIN_DAYS  ?= 7
+KEEP_MINIMUM ?= 5
+GH_REPO      ?= $(shell gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
 
 #help: @ List available tasks
 help:
@@ -36,180 +42,179 @@ help:
 	@echo "Commands :"
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-30s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check and install required dependencies
+#deps: @ Install mise and project tools (.mise.toml)
 deps:
-	@if [ -z "$$CI" ] && [ ! -s "$$HOME/.gvm/scripts/gvm" ]; then \
-		echo "Installing gvm (Go Version Manager)..."; \
-		curl -s -S -L https://raw.githubusercontent.com/moovweb/gvm/$(GVM_SHA)/binscripts/gvm-installer | bash -s $(GVM_SHA); \
-		echo ""; \
-		echo "gvm installed. Please restart your shell or run:"; \
-		echo "  source $$HOME/.gvm/scripts/gvm"; \
-		echo "Then re-run 'make deps' to install Go $(GO_VERSION) via gvm."; \
-		exit 0; \
-	fi
-	@if [ "$(HAS_GVM)" = "true" ]; then \
-		for v in $(GO_VERSIONS); do \
-			bash -c '. $$GVM_ROOT/scripts/gvm && gvm list' 2>/dev/null | grep -q "go$$v" || { \
-				echo "Installing Go $$v via gvm..."; \
-				bash -c '. $$GVM_ROOT/scripts/gvm && gvm install go'"$$v"' -B'; \
-			}; \
-		done; \
-	else \
-		command -v go >/dev/null 2>&1 || { echo "Error: Go required. Install gvm from https://github.com/moovweb/gvm or Go from https://go.dev/dl/"; exit 1; }; \
-	fi
+	@command -v mise >/dev/null 2>&1 || { \
+		echo "Installing mise (no root, ~/.local/bin)..."; \
+		curl -fsSL https://mise.run | sh; \
+	}
 	@command -v docker >/dev/null 2>&1 || { echo "Error: Docker is required. Install from https://www.docker.com/"; exit 1; }
-	@$(call go-exec,command -v golangci-lint) >/dev/null 2>&1 || { echo "Installing golangci-lint v$(GOLANGCI_VERSION)..."; \
-		$(call go-exec,go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_VERSION)); }
-	@$(call go-exec,command -v ko) >/dev/null 2>&1 || { echo "Installing ko v$(KO_VERSION)..."; \
-		$(call go-exec,go install github.com/google/ko@v$(KO_VERSION)); }
-	@command -v node >/dev/null 2>&1 || { \
-		echo "Installing nvm $(NVM_VERSION) + Node $(NODE_VERSION)..."; \
-		curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
-		export NVM_DIR="$$HOME/.nvm"; \
-		[ -s "$$NVM_DIR/nvm.sh" ] && . "$$NVM_DIR/nvm.sh"; \
-		nvm install $(NODE_VERSION); \
-	}
-
-#deps-check: @ Show required Go versions and gvm status
-deps-check:
-	@echo "Go versions required: $(GO_VERSIONS)"
-	@echo "Primary Go version:   $(GO_VERSION)"
-	@command -v gvm >/dev/null 2>&1 && { \
-		bash -c '. $$GVM_ROOT/scripts/gvm && gvm list'; \
-	} || echo "gvm not installed — install from https://github.com/moovweb/gvm"
-
-#deps-act: @ Install act for local CI
-deps-act: deps
-	@command -v act >/dev/null 2>&1 || { echo "Installing act $(ACT_VERSION)..."; \
-		curl -sSfL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
-	}
+	@mise install --yes
 
 #test: @ Run tests with race detection
 test: deps
-	@$(call go-exec,go test -race ./...)
+	@go test -race ./...
 
 #build: @ Build all binaries
 build: deps
-	@$(call go-exec,go build -o ./.bin/app ./cmd/app.go)
-	@$(call go-exec,go build -o ./.bin/consumer ./cmd/consumer)
-	@$(call go-exec,go build -o ./.bin/datagen ./cmd/datagen)
-	@$(call go-exec,go build -o ./.bin/dummy ./cmd/dummy)
-	@$(call go-exec,go build -o ./.bin/errorgen ./cmd/errorgen)
-	@$(call go-exec,go build -o ./.bin/publisher ./cmd/publisher)
-	@$(call go-exec,go build -o ./.bin/service-a ./cmd/service-a)
-	@$(call go-exec,go build -o ./.bin/service-b ./cmd/service-b)
-	@$(call go-exec,go build -o ./.bin/service-c ./cmd/service-c)
-	@$(call go-exec,go build -o ./.bin/timeline ./cmd/timeline)
+	@go build -o ./.bin/app ./cmd/app.go
+	@for d in $(BINARY_DIRS); do go build -o ./.bin/$$d ./cmd/$$d || exit 1; done
 
-#clean: @ Remove build artifacts
+#clean: @ Remove build artifacts and coverage output
 clean:
-	@rm -rf ./.bin
+	@rm -rf ./.bin coverage.out
 
-#lint: @ Run golangci-lint (includes gocritic via .golangci.yml)
+#lint: @ Run golangci-lint (gocritic enabled via .golangci.yml)
 lint: deps
-	@$(call go-exec,golangci-lint run ./...)
+	@golangci-lint run ./...
 
-#run: @ Run the main app locally
-run: deps
-	@$(call go-exec,go run ./cmd/app.go serve -connStr dapr)
-
-#format: @ Format Go source files
+#format: @ Format Go source files (mutates tree)
 format: deps
-	@$(call go-exec,gofmt -w .)
+	@gofmt -w .
 
-#update: @ Update Go dependencies
+#format-check: @ Verify Go sources are gofmt-clean (CI gate)
+format-check: deps
+	@unformatted=$$(gofmt -l . 2>/dev/null); \
+	if [ -n "$$unformatted" ]; then \
+		echo "ERROR: the following files are not gofmt-clean. Run 'make format':"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+
+#sec: @ Run gosec (HIGH/CRITICAL gate)
+sec: deps
+	@gosec -quiet -severity high -confidence high ./...
+
+#vulncheck: @ Run govulncheck against project + std library
+vulncheck: deps
+	@govulncheck ./...
+
+#secrets: @ Scan working tree for committed secrets
+secrets: deps
+	@gitleaks detect --no-banner --redact --exit-code 1
+
+#trivy-fs: @ Trivy filesystem scan (vuln, secret, misconfig)
+trivy-fs: deps
+	@trivy fs --quiet --exit-code 1 --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --skip-dirs .bin,vendor,node_modules .
+
+#trivy-config: @ Trivy IaC scan over k8s + Dapr manifests
+trivy-config: deps
+	@trivy config --quiet --exit-code 1 --severity HIGH,CRITICAL deploy .dapr
+
+#lint-ci: @ Lint GitHub Actions workflows
+lint-ci: deps
+	@actionlint -color
+
+#shellcheck: @ Lint shell scripts under scripts/
+shellcheck: deps
+	@if [ -d scripts ]; then \
+		find scripts -type f -name '*.sh' -print0 | xargs -0 -r shellcheck; \
+	fi
+
+#mermaid-lint: @ Validate ```mermaid blocks in markdown via official CLI
+mermaid-lint:
+	@bash scripts/mermaid-lint.sh
+
+#static-check: @ Composite quality gate (lint + ci + sec + vulncheck + secrets + trivy + mermaid)
+static-check: format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint
+
+#run: @ Run the main app locally (requires Dapr sidecar)
+run: deps
+	@go run ./cmd/app.go serve -connStr dapr
+
+#update: @ Update Go dependencies (aggressive — major bumps allowed)
 update: deps
-	@$(call go-exec,go get -u ./...)
-	@$(call go-exec,go mod tidy)
+	@go get -u ./...
+	@go mod tidy
+
+#update-minor: @ Update Go dependencies to latest patch only
+update-minor: deps
+	@go get -u=patch ./...
+	@go mod tidy
+
+#image-build: @ Build images locally (no push)
+image-build: deps
+	@ko build --local --bare ./cmd
+	@for d in $(BINARY_DIRS); do ko build --local --bare ./cmd/$$d || exit 1; done
 
 #push: @ Publish all images with ko
 push: deps
-	@$(call go-exec,ko publish ./cmd)
-	@$(call go-exec,ko publish ./cmd/consumer)
-	@$(call go-exec,ko publish ./cmd/datagen)
-	@$(call go-exec,ko publish ./cmd/dummy)
-	@$(call go-exec,ko publish ./cmd/errorgen)
-	@$(call go-exec,ko publish ./cmd/publisher)
-	@$(call go-exec,ko publish ./cmd/service-a)
-	@$(call go-exec,ko publish ./cmd/service-b)
-	@$(call go-exec,ko publish ./cmd/service-c)
-	@$(call go-exec,ko publish ./cmd/timeline)
+	@ko publish ./cmd
+	@for d in $(BINARY_DIRS); do ko publish ./cmd/$$d || exit 1; done
 
 #rollout: @ Restart app pods
 rollout:
-	@kubectl delete pod -l app=crud-app
-	@kubectl delete pod -l app=timeline-app
+	@kubectl delete pod -l app=crud-app -n $(APP_NAMESPACE)
+	@kubectl delete pod -l app=timeline-app -n $(APP_NAMESPACE)
 
 #app-logs: @ Show crud-app container logs
 app-logs:
-	@kubectl logs -l app=crud-app -c crud-app
+	@kubectl logs -l app=crud-app -c crud-app -n $(APP_NAMESPACE)
 
 #mongo-run: @ Run MongoDB in Docker
 mongo-run:
-	@docker run -it -p 27017:27017 mongo:8.0
+	@docker run -it -p 27017:27017 mongo:$(MONGO_VERSION)
 
-#dapr-run: @ Run app with Dapr sidecar
-dapr-run:
-	@dapr run --app-id crud-app --app-port 8080 --dapr-http-port 3500 ./bin/app serve -connStr dapr
+#dapr-run: @ Run app under Dapr sidecar (depends on build)
+dapr-run: build
+	@dapr run --app-id crud-app --app-port 8080 --dapr-http-port 3500 ./.bin/app serve -connStr dapr
 
-#zipkin-setup: @ Deploy Zipkin and expose via skind
-zipkin-setup: zipkin-deploy
-	@skind expose zipkin
-
-#zipkin-deploy: @ Deploy Zipkin to Kubernetes
+#zipkin-deploy: @ Deploy Zipkin to the current namespace
 zipkin-deploy:
-	@kubectl create deployment zipkin --image openzipkin/zipkin:3.6
-	@kubectl expose deployment zipkin --type ClusterIP --port 9411
+	@kubectl create deployment zipkin --image openzipkin/zipkin:$(ZIPKIN_VERSION) -n $(APP_NAMESPACE)
+	@kubectl expose deployment zipkin --type ClusterIP --port 9411 -n $(APP_NAMESPACE)
 
 #redis-deploy: @ Deploy Redis with Helm (standalone)
 redis-deploy:
-	@helm upgrade --install redis bitnami/redis -n ${APP_NAMESPACE} --set architecture=standalone
+	@helm upgrade --install redis bitnami/redis -n $(APP_NAMESPACE) --set architecture=standalone
 
 #redis-deploy-replicated: @ Deploy Redis with Helm (replication)
 redis-deploy-replicated:
-	@helm upgrade --install redis bitnami/redis -n ${APP_NAMESPACE} --set replica.replicaCount=1
+	@helm upgrade --install redis bitnami/redis -n $(APP_NAMESPACE) --set replica.replicaCount=1
 
-#deploy: @ Deploy full stack to Kubernetes
-deploy: push
-	@kubectl create namespace ${APP_NAMESPACE} || true
-	@$(MAKE) redis-deploy
-	@kubectl apply -f .dapr/configuration.yaml -n ${APP_NAMESPACE}
-	@kubectl apply -f .dapr/components -n ${APP_NAMESPACE}
-	@kubectl apply -f deploy -n ${APP_NAMESPACE}
-
-#apply: @ Apply Dapr config and deployments
+#apply: @ Apply Dapr config and deployments (no image push)
 apply:
-	@kubectl apply -f .dapr/configuration.yaml -n ${APP_NAMESPACE}
-	@kubectl apply -f .dapr/components -n ${APP_NAMESPACE}
-	@kubectl apply -f deploy -n ${APP_NAMESPACE}
+	@kubectl create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	@kubectl apply -f .dapr/configuration.yaml -n $(APP_NAMESPACE)
+	@kubectl apply -f .dapr/components -n $(APP_NAMESPACE)
+	@kubectl apply -f deploy -n $(APP_NAMESPACE)
+
+#deploy: @ Apply manifests without rebuilding images (fast iteration)
+deploy: redis-deploy apply
+
+#deploy-full: @ Build/push images then deploy full stack
+deploy-full: push deploy
 
 #release: @ Create and push a new tag
 release:
-	@bash -c 'read -p "New tag (current: $(CURRENTTAG)): " newtag && \
-		echo "$$newtag" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+$$" || { echo "Error: Tag must match vN.N.N"; exit 1; } && \
-		echo -n "Create and push $$newtag? [y/N] " && read ans && [ "$${ans:-N}" = y ] && \
-		echo $$newtag > ./version.txt && \
-		git add version.txt && \
-		git commit -a -s -m "Cut $$newtag release" && \
-		git tag $$newtag && \
-		git push origin $$newtag && \
-		git push && \
+	@bash -c 'read -p "New tag (current: $(CURRENTTAG)): " newtag; \
+		echo "$$newtag" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+$$" || { echo "Error: Tag must match vN.N.N"; exit 1; }; \
+		read -p "Create and push $$newtag? [y/N] " ans; \
+		[ "$${ans:-N}" = "y" ] || { echo "Aborted."; exit 1; }; \
+		echo $$newtag > ./version.txt; \
+		git add version.txt; \
+		git commit -a -s -m "Cut $$newtag release"; \
+		git tag $$newtag; \
+		git push; \
+		git push origin $$newtag; \
 		echo "Done."'
 
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate: deps
-	@npx --yes renovate --platform=local
+	@if [ -n "$$GH_ACCESS_TOKEN" ]; then \
+		GITHUB_COM_TOKEN=$$GH_ACCESS_TOKEN npx --yes renovate --platform=local; \
+	else \
+		echo "Warning: GH_ACCESS_TOKEN not set, some dependency lookups may fail"; \
+		npx --yes renovate --platform=local; \
+	fi
 
-#deps-prune: @ Remove unused Go dependencies
+#deps-prune: @ Remove unused Go dependencies (writes go.mod/go.sum)
 deps-prune: deps
-	@echo "=== Dependency Pruning ==="
-	@echo "--- Go: running go mod tidy ---"
-	@$(call go-exec,go mod tidy)
-	@echo "=== Pruning complete ==="
+	@go mod tidy
 
 #deps-prune-check: @ Verify no prunable dependencies (CI gate)
 deps-prune-check: deps
-	@$(call go-exec,go mod tidy)
+	@go mod tidy
 	@if ! git diff --exit-code go.mod go.sum >/dev/null 2>&1; then \
 		echo "ERROR: go.mod/go.sum not tidy. Run 'make deps-prune'."; \
 		git checkout go.mod go.sum; \
@@ -217,15 +222,26 @@ deps-prune-check: deps
 	fi
 	@echo "No prunable dependencies found."
 
-#ci: @ Run full CI pipeline locally
-ci: deps format lint test build
+#cleanup-runs: @ Prune old GitHub Actions runs (RETAIN_DAYS, KEEP_MINIMUM)
+cleanup-runs:
+	@if [ -z "$(GH_REPO)" ]; then echo "Error: GH_REPO is empty (gh CLI not authenticated)"; exit 1; fi
+	@CUTOFF=$$(date -u -d "$(RETAIN_DAYS) days ago" +%Y-%m-%dT%H:%M:%SZ); \
+	gh run list --repo "$(GH_REPO)" --json databaseId,createdAt --limit 200 \
+	  --jq "sort_by(.createdAt) | reverse | .[$(KEEP_MINIMUM):] | .[] | select(.createdAt < \"$$CUTOFF\") | .databaseId" \
+	| xargs -r -I{} gh run delete {} --repo "$(GH_REPO)"
+
+#ci: @ Run full CI pipeline locally (deps + static-check + test + build)
+ci: deps static-check test build
 	@echo "CI passed."
 
-#ci-run: @ Run GitHub Actions workflow locally using act
-ci-run: deps-act
+#ci-run: @ Run GitHub Actions workflow locally via act
+ci-run: deps
 	@act push --container-architecture linux/amd64 \
+		-P ubuntu-24.04=catthehacker/ubuntu:$(ACT_UBUNTU_VERSION) \
 		--artifact-server-path /tmp/act-artifacts
 
-.PHONY: help deps deps-check deps-act test build clean lint format run update push rollout app-logs \
-	mongo-run dapr-run zipkin-setup zipkin-deploy redis-deploy redis-deploy-replicated \
-	deploy apply release renovate-validate deps-prune deps-prune-check ci ci-run
+.PHONY: help deps test build clean lint format format-check sec vulncheck secrets \
+	trivy-fs trivy-config lint-ci shellcheck mermaid-lint static-check run update update-minor \
+	image-build push rollout app-logs mongo-run dapr-run zipkin-deploy \
+	redis-deploy redis-deploy-replicated apply deploy deploy-full release \
+	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run

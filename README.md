@@ -5,109 +5,289 @@
 
 # Dapr Go CRUD App
 
-A set of Go microservices demonstrating Dapr (Distributed Application Runtime) features including CRUD operations, pub/sub messaging, service invocation, and timeline tracking. Deploys to Kubernetes using ko for container image building.
+Reference implementation of a 10-binary Go microservice topology on Dapr, exercising four building blocks (state store, pub/sub, service invocation, resiliency) against a single Redis cluster on Kubernetes. Container images are built and published with `ko` (no Dockerfile).
+
+```mermaid
+C4Context
+title System Context — Dapr Go CRUD App
+
+Person(user, "User", "REST client")
+
+Boundary(b1, "Kubernetes namespace: crud-app") {
+  System(crud, "crud-app", "REST /api/v1/todos; Dapr state + pubsub")
+  System(timeline, "timeline-app", "Subscribes 'todos' topic; serves timeline")
+  System(svc, "service-a/b/c", "Dapr service-invocation chain + 'events' topic")
+  System(gen, "Load and chaos generators", "publisher, consumer, datagen, dummy, errorgen")
+}
+
+System_Ext(redis, "Redis", "Dapr state store + pub/sub broker")
+System_Ext(mongo, "MongoDB", "Optional crud-app backend")
+
+Rel(user, crud, "HTTP")
+Rel(crud, redis, "Save state + Publish 'todos'", "Dapr SDK")
+Rel(timeline, redis, "Subscribe 'todos'", "Dapr SDK")
+Rel(svc, redis, "Publish/Subscribe 'events'", "Dapr SDK")
+Rel(gen, redis, "Publish/Subscribe 'events'", "Dapr SDK")
+Rel(crud, mongo, "Optional storage backend")
+```
+
+## Tech Stack
+
+| Component | Technology | Rationale |
+|-----------|-----------|-----------|
+| Language | Go 1.26.1 | First-class Dapr Go SDK; static binary deploys cleanly with `ko`. |
+| HTTP routing | Gin | Minimal, well-known router with low boilerplate for sample apps. |
+| Distributed runtime | Dapr Go SDK | Sidecar abstracts state store, pub/sub, and service invocation behind a single API. |
+| State store + broker | Redis | Single backing store for both `statestore` and `pubsub` Dapr components — one Helm chart in CI/dev. |
+| Optional backend | MongoDB 8.0 | Demonstrates pluggable storage interface (`storage.TodosStorage`) without touching app code. |
+| Container build | ko 0.18 | Builds OCI images directly from Go source; no Dockerfile. |
+| Orchestration | Kubernetes | Dapr injector + sidecar runs as `daprd` per pod via deployment annotations. |
+| Toolchain manager | mise | Single source of truth for Go, Node, and every static-analysis binary; replaces gvm + nvm. |
+| CI | GitHub Actions | Composite quality gate (`make static-check`) gated by a `changes` filter and a `ci-pass` aggregator. |
 
 ## Quick Start
 
 ```bash
-make deps      # install/check required tools
-make build     # build all binaries
-make test      # run tests
-make ci        # full CI pipeline (format, lint, test, build)
+make deps      # install mise + every pinned tool from .mise.toml
+make build     # compile all 10 binaries into ./.bin/
+make test      # go test -race ./...
+make ci        # full local pipeline: deps + static-check + test + build
 ```
 
 ## Prerequisites
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [gvm](https://github.com/moovweb/gvm) | latest | Go Version Manager (auto-installs required Go versions) |
 | [GNU Make](https://www.gnu.org/software/make/) | 3.81+ | Build orchestration |
-| [Docker](https://www.docker.com/) | latest | Container runtime |
-| [kubectl](https://kubernetes.io/docs/tasks/tools/) | latest | Kubernetes CLI |
-| [ko](https://ko.build/) | 0.18+ | Go container image builder |
-| [golangci-lint](https://golangci-lint.run/) | 2.11+ | Go linters aggregator (auto-installed by `make deps`) |
-| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | latest | Local Dapr development (optional) |
-| [Helm](https://helm.sh/) | latest | Redis deployment to Kubernetes (optional) |
-| [act](https://github.com/nektos/act) | latest | Run GitHub Actions locally (optional) |
+| [Git](https://git-scm.com/) | latest | Source control |
+| [Docker](https://www.docker.com/) | latest | Required by `make mongo-run`, `make mermaid-lint`, and the act-based local CI |
+| [mise](https://mise.jdx.dev/) | latest | Cross-language version manager — installs Go, Node, and every static-analysis tool from `.mise.toml`; auto-installed by `make deps` |
+| [Go](https://go.dev/dl/) | 1.26.1 | Pinned in `.mise.toml`; installed by `mise install` |
+| [Node.js](https://nodejs.org/) | 24 | Used by `make renovate-validate` (`npx renovate`); installed by `mise install` |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | latest | Required by `make deploy` |
+| [Helm](https://helm.sh/) | latest | Required by `make redis-deploy` |
+| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | latest | Optional — `make dapr-run` for local sidecar |
 
-Install all required dependencies:
+Install everything with one command:
 
 ```bash
 make deps
 ```
 
+## Architecture
+
+The system runs as 10 sidecar-injected pods in the `crud-app` namespace, sharing a single Redis cluster as both the Dapr state store and the pub/sub broker.
+
+### Apps
+
+| App | Role |
+|-----|------|
+| `crud-app` (`cmd/app.go`) | REST `/api/v1/todos`; storage backend selected by `-connStr` flag (`mem` / `dapr` / Mongo URI). Publishes `todos` events to pub/sub when using the Dapr backend. |
+| `timeline-app` (`cmd/timeline`) | Subscribes to `todos` topic via `timeline-sub`; serves the rolling timeline through `GET /events`. |
+| `publisher-app` (`cmd/publisher`) | Periodically publishes to the `events` topic. |
+| `consumer-app` (`cmd/consumer`) | Subscribes to the `events` topic; demonstrates state-store reads/writes. |
+| `service-a` (`cmd/service-a`) | Service-invocation client; calls `service-b/method/hello` through the Dapr sidecar. |
+| `service-b` (`cmd/service-b`) | Receives invocations on `/hello`; publishes follow-up `events` messages. |
+| `service-c` (`cmd/service-c`) | Subscribes to the `events` topic alongside `consumer-app` (fan-out demo). |
+| `datagen-app` (`cmd/datagen`) | Periodic state-store writer used to seed/keep load on Redis. |
+| `dummy-app` (`cmd/dummy`) | Minimal HTTP receiver on `/events`; target of chaos invocations from `errorgen`. |
+| `errorgen-app` (`cmd/errorgen`) | Chaos generator — exercises retries and resiliency policies by issuing intentionally-broken invocations. |
+
+### Dapr components
+
+| Component | Type | Notes |
+|-----------|------|-------|
+| `pubsub` | `pubsub.redis` | Topics: `todos` (publishingScope: `crud-app`) and `events` (publishingScopes: `publisher-app`, `service-b`). |
+| `statestore` | `state.redis` | Scoped to `crud-app`, `datagen-app`, `consumer-app`. |
+| `myresiliency` | Resiliency | Timeouts + retries + circuit breakers; scoped to `timeline-app`. |
+| `service-a-resiliency` | Resiliency | Per-call retry + CB policy; scoped to `service-a`. |
+
+### Subscriptions
+
+| Subscription | Topic | Route | Subscriber |
+|--------------|-------|-------|------------|
+| `timeline-sub` | `todos` | `POST /todos` | `timeline-app` |
+| `dummy-sub` | `todos` | `POST /todos-not-existent` | `timeline-app` (intentional 404 — chaos test) |
+
+## API
+
+`crud-app` exposes the CRUD surface on port 8080:
+
+| Method | Path | Body | Effect |
+|--------|------|------|--------|
+| `GET`    | `/api/v1/todos`           | — | List todos |
+| `POST`   | `/api/v1/todos`           | `{"text": "...", "done": false}` | Create todo |
+| `PUT`    | `/api/v1/todos`           | `{"id": "...", "text": "...", "done": true}` | Update todo |
+| `DELETE` | `/api/v1/todos`           | `{"id": "..."}` | Delete todo |
+
+`timeline-app` exposes the timeline on port 8080:
+
+| Method | Path | Body | Effect |
+|--------|------|------|--------|
+| `GET`  | `/events` | — | List recent CRUD events captured from the `todos` topic |
+| `POST` | `/events` | CloudEvent or raw todo JSON | Internal endpoint — invoked by the Dapr `timeline-sub` subscription |
+
+`dummy-app` exposes a no-op `/events` GET/POST for chaos exercises (port from `-port` flag, default 8080).
+
+Quick smoke once the stack is deployed:
+
+```bash
+kubectl port-forward -n crud-app svc/crud-app 8080:8080 &
+curl -X POST localhost:8080/api/v1/todos -d '{"text":"buy milk","done":false}' -H 'Content-Type: application/json'
+curl localhost:8080/api/v1/todos
+```
+
+## Build & Package
+
+| Stage | Command | Output |
+|-------|---------|--------|
+| Compile | `make build` | `./.bin/{app,consumer,datagen,dummy,errorgen,publisher,service-a,service-b,service-c,timeline}` |
+| Local image build (no push) | `make image-build` | OCI images in the local Docker daemon |
+| Publish images | `make push` | Pushes to `$KO_DOCKER_REPO` (default `docker.io/andriykalashnykov`; override via env) |
+
+ko hashes the source tree to produce content-addressed image names. Override the registry per call:
+
+```bash
+KO_DOCKER_REPO=ghcr.io/your-org/dapr-go-crud-app make push
+```
+
+## Deployment
+
+The `deploy/*.yaml` manifests assume Redis is reachable at `redis-master.crud-app:6379` (the default for the Bitnami Helm chart in the `crud-app` namespace).
+
+```bash
+make redis-deploy        # Helm install Redis (standalone)
+make deploy              # Apply Dapr config + components + Deployments (no image rebuild)
+make deploy-full         # ko publish + redis + apply (one-shot fresh deploy)
+make rollout             # Restart the crud-app + timeline-app pods
+make app-logs            # Tail crud-app logs
+```
+
+The `crud-app` namespace is created by `make apply` if missing. Override with `APP_NAMESPACE=other make deploy`.
+
 ## Available Make Targets
 
-Run `make help` to see all available targets.
+Run `make help` to see all targets. They are grouped here for reference.
 
 ### Build & Run
 
 | Target | Description |
 |--------|-------------|
-| `make build` | Build all binaries |
-| `make test` | Run tests with race detection |
-| `make lint` | Run golangci-lint (includes gocritic via .golangci.yml) |
-| `make format` | Format Go source files |
-| `make clean` | Remove build artifacts |
-| `make run` | Run the main app locally |
-| `make update` | Update Go dependencies |
+| `make build` | Compile every binary into `./.bin/` |
+| `make run` | Run `crud-app` locally (requires Dapr sidecar) |
+| `make dapr-run` | Run `crud-app` under `dapr run` (depends on `build`) |
+| `make clean` | Remove `./.bin/` and coverage output |
+| `make update` | `go get -u ./...` + `go mod tidy` (allows major bumps) |
+| `make update-minor` | `go get -u=patch ./...` + `go mod tidy` |
 
-### Dapr & Infrastructure
-
-| Target | Description |
-|--------|-------------|
-| `make dapr-run` | Run app with Dapr sidecar |
-| `make mongo-run` | Run MongoDB in Docker |
-| `make redis-deploy` | Deploy Redis with Helm (standalone) |
-| `make redis-deploy-replicated` | Deploy Redis with Helm (replication) |
-| `make zipkin-setup` | Deploy Zipkin and expose via skind |
-| `make zipkin-deploy` | Deploy Zipkin to Kubernetes |
-
-### Kubernetes Deployment
+### Testing
 
 | Target | Description |
 |--------|-------------|
-| `make deploy` | Deploy full stack to Kubernetes |
-| `make apply` | Apply Dapr config and deployments |
-| `make push` | Publish all images with ko |
-| `make rollout` | Restart app pods |
-| `make app-logs` | Show crud-app container logs |
+| `make test` | `go test -race ./...` (currently no `_test.go` files exist; see [Test coverage](#test-coverage) below) |
+
+### Static analysis (composite gate)
+
+| Target | Description |
+|--------|-------------|
+| `make static-check` | Composite gate: `format-check` + `lint` + `lint-ci` + `shellcheck` + `sec` + `vulncheck` + `secrets` + `trivy-fs` + `trivy-config` + `mermaid-lint` |
+| `make format` | `gofmt -w .` (mutates tree) |
+| `make format-check` | Verify tree is gofmt-clean (CI gate) |
+| `make lint` | golangci-lint (gocritic enabled via `.golangci.yml`) |
+| `make lint-ci` | actionlint over `.github/workflows/` |
+| `make shellcheck` | shellcheck over `scripts/` |
+| `make sec` | gosec — HIGH/CRITICAL only |
+| `make vulncheck` | govulncheck against project + std library |
+| `make secrets` | gitleaks — exits non-zero on any committed secret |
+| `make trivy-fs` | Trivy filesystem scan (vuln + secret + misconfig, HIGH/CRITICAL) |
+| `make trivy-config` | Trivy IaC scan over `deploy/` and `.dapr/` |
+| `make mermaid-lint` | Validate every ` ```mermaid ` block in `*.md` via the official Mermaid CLI |
+
+### Container images
+
+| Target | Description |
+|--------|-------------|
+| `make image-build` | Build images locally (no push) |
+| `make push` | Publish images to `$KO_DOCKER_REPO` |
+
+### Kubernetes
+
+| Target | Description |
+|--------|-------------|
+| `make redis-deploy` | Helm-install Redis (standalone) |
+| `make redis-deploy-replicated` | Helm-install Redis (replication) |
+| `make zipkin-deploy` | Deploy Zipkin into the namespace |
+| `make apply` | Apply namespace + Dapr config + components + manifests |
+| `make deploy` | `redis-deploy` + `apply` (no image rebuild) |
+| `make deploy-full` | `push` + `deploy` (fresh end-to-end) |
+| `make rollout` | Restart `crud-app` and `timeline-app` pods |
+| `make app-logs` | Tail `crud-app` logs |
+| `make mongo-run` | Run MongoDB locally in Docker (alternative storage backend) |
 
 ### CI
 
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run full CI pipeline locally |
-| `make ci-run` | Run GitHub Actions workflow locally using [act](https://github.com/nektos/act) |
+| `make ci` | Full local pipeline (deps + static-check + test + build) |
+| `make ci-run` | Run the GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
+| `make cleanup-runs` | Prune old GitHub Actions runs (`RETAIN_DAYS`, `KEEP_MINIMUM`) |
+| `make renovate-validate` | Validate `renovate.json` via `npx renovate --platform=local` |
 
 ### Utilities
 
 | Target | Description |
 |--------|-------------|
-| `make help` | List available tasks |
-| `make deps` | Check and install required dependencies (uses gvm for Go) |
-| `make deps-check` | Show required Go versions and gvm status |
-| `make deps-act` | Install act for local CI |
-| `make deps-prune` | Remove unused Go dependencies |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate) |
-| `make release` | Create and push a new tag |
-| `make renovate-validate` | Validate Renovate configuration |
+| `make help` | List all available targets |
+| `make deps` | Install mise + every pinned tool from `.mise.toml` |
+| `make deps-prune` | Run `go mod tidy` |
+| `make deps-prune-check` | Verify `go mod tidy` is a no-op (CI gate) |
+| `make release` | Interactive `vN.N.N` tag-and-push |
 
 ## CI/CD
 
-GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
+### `ci.yml`
 
-| Job | Triggers | Steps |
-|-----|----------|-------|
-| **static-check** | push (main), PR, tags | Lint |
-| **build** | after static-check | Build, upload artifacts |
-| **test** | after static-check | Test |
-| **cleanup** | weekly (Sunday) + manual | Delete old workflow runs (retain 7 days, keep 5 minimum) |
+Runs on every push to `main`, on `v*` tags, on pull requests, and via `workflow_call` (reusable).
 
-Concurrency is set with `cancel-in-progress: true`. Permissions are minimal (`contents: read`).
+| Job | Triggers / Needs | Steps |
+|-----|------------------|-------|
+| `changes` | All triggers | `dorny/paths-filter` decides whether code paths changed (skips doc-only updates) |
+| `static-check` | `needs: [changes]`, only if `code` changed | `make static-check` (composite gate) |
+| `build` | `needs: [changes, static-check]` | `make build` + upload `.bin/` artifacts |
+| `test` | `needs: [changes, static-check]` | `make test` |
+| `ci-pass` | `needs: [changes, static-check, build, test]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Use this as the single required-status-check rule. |
 
-[Renovate](https://docs.renovatebot.com/) keeps dependencies up to date with platform automerge enabled.
+Concurrency: `cancel-in-progress: true`. Permissions: `contents: read` (jobwise; `changes` adds `pull-requests: read`).
+
+### `cleanup-runs.yml`
+
+Weekly cron (Sunday midnight UTC) plus manual `workflow_dispatch`. Calls `make cleanup-runs` with the in-job env (`RETAIN_DAYS=7`, `KEEP_MINIMUM=5`) so the same logic can be exercised locally. Permissions: `actions: write`.
+
+### Required secrets and variables
+
+| Name | Type | Used by | How to obtain |
+|------|------|---------|---------------|
+| `GITHUB_TOKEN` | Secret (built-in) | every job | Provided automatically by GitHub Actions; no setup |
+
+No additional secrets or variables are required. Image publishing (`make push`) is currently a local-only flow — it is not invoked from CI, so no registry credentials need to be configured.
+
+[Renovate](https://docs.renovatebot.com/) tracks every dependency: Go modules, GitHub Actions, the `.mise.toml` toolchain (via the native `mise` manager), and Makefile inline-comment pins (`MONGO_VERSION`, `ZIPKIN_VERSION`, `ACT_UBUNTU_VERSION`, `MERMAID_CLI_VERSION`). Toolchain bumps are grouped into a single PR.
+
+## Test coverage
+
+`make test` currently exits 0 trivially — no `_test.go` files exist yet. Test scaffolding (unit, integration, e2e against KinD + Dapr) is tracked separately and produced by running `/test-coverage-analysis` directly. Phases involved:
+
+1. Add unit tests for `pkg/storage` (in-mem maxItems eviction), `pkg/timeline`, `pkg/todos`.
+2. Add `make integration-test` against Testcontainers (Redis + Mongo + daprd standalone).
+3. Add `make e2e` that spins up KinD, installs Dapr via Helm, applies the manifests, and asserts on the pub/sub round-trip + service-invocation chain.
+4. Wire `integration-test` and `e2e` jobs into `ci.yml` (depending on `[build]`), then add them to the `ci-pass` aggregator's `needs:` list.
+
+## Contributing
+
+Contributions are welcome — open a PR. Run `make ci` locally before pushing.
 
 ## References
 
 - [Original crud app](https://github.com/famarting/crud-app)
+- [Dapr documentation](https://docs.dapr.io/)
+- [ko documentation](https://ko.build/)
