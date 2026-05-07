@@ -44,8 +44,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: redis
-          # renovate: datasource=docker depName=redis
-          image: redis:8-alpine
+          # renovate: datasource=docker depName=public.ecr.aws/docker/library/redis
+          image: public.ecr.aws/docker/library/redis:8-alpine
           imagePullPolicy: Always
           ports:
             - name: redis
