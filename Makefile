@@ -250,6 +250,8 @@ deploy-full: push deploy
 release:
 	@bash -c 'read -p "New tag (current: $(CURRENTTAG)): " newtag; \
 		echo "$$newtag" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+$$" || { echo "Error: Tag must match vN.N.N"; exit 1; }; \
+		if git rev-parse -q --verify "refs/tags/$$newtag" >/dev/null 2>&1; then echo "ERROR: tag $$newtag already exists locally. Pick a new version or delete it: git tag -d $$newtag"; exit 1; fi; \
+		if git ls-remote --exit-code --tags origin "refs/tags/$$newtag" >/dev/null 2>&1; then echo "ERROR: tag $$newtag already exists on origin. Pick a new version."; exit 1; fi; \
 		read -p "Create and push $$newtag? [y/N] " ans; \
 		[ "$${ans:-N}" = "y" ] || { echo "Aborted."; exit 1; }; \
 		echo $$newtag > ./version.txt; \
