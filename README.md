@@ -35,7 +35,7 @@ Rel(crud, mongo, "Optional storage backend")
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
-| Language | Go 1.26.2 | First-class Dapr Go SDK; static binary deploys cleanly with `ko`. |
+| Language | Go 1.26.4 | First-class Dapr Go SDK; static binary deploys cleanly with `ko`. |
 | HTTP routing | Gin | Minimal, well-known router with low boilerplate for sample apps. |
 | Distributed runtime | Dapr Go SDK | Sidecar abstracts state store, pub/sub, and service invocation behind a single API. |
 | State store + broker | Redis 8 (upstream image) | Single backing store for both `statestore` and `pubsub` Dapr components — one Deployment in `deploy/redis.yaml`, no Helm chart. |
@@ -62,7 +62,7 @@ make ci        # full local pipeline: deps + static-check + test + build
 | [Git](https://git-scm.com/) | latest | Source control |
 | [Docker](https://www.docker.com/) | latest | Required by `make mongo-run`, `make mermaid-lint`, and the act-based local CI |
 | [mise](https://mise.jdx.dev/) | latest | Cross-language version manager — installs Go, Node, and every static-analysis tool from `.mise.toml`; auto-installed by `make deps` |
-| [Go](https://go.dev/dl/) | 1.26.2 | Pinned in `.mise.toml`; installed by `mise install` |
+| [Go](https://go.dev/dl/) | 1.26.4 | Pinned in `.mise.toml`; installed by `mise install` |
 | [Node.js](https://nodejs.org/) | 24 | Used by `make renovate-validate` (`npx renovate`); installed by `mise install` |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | latest | Required by `make deploy` |
 | [Helm](https://helm.sh/) | latest | Required by `make redis-deploy` |
@@ -85,9 +85,9 @@ title Container View — dapr-go-crud-app
 Person(user, "User", "REST client")
 
 System_Boundary(b1, "Kubernetes namespace: crud-app") {
-  Container(rest, "REST tier", "Go 1.26.2, Gin", "crud-app + timeline-app + dummy-app — the only HTTP listeners")
-  Container(svc, "Service-invocation tier", "Go 1.26.2, Dapr Go SDK", "service-a / service-b / service-c — gRPC subscribers + invokers")
-  Container(gens, "Load and chaos tier", "Go 1.26.2, Dapr Go SDK", "publisher / consumer / datagen / errorgen — exercise Dapr from background loops")
+  Container(rest, "REST tier", "Go 1.26.4, Gin", "crud-app + timeline-app + dummy-app — the only HTTP listeners")
+  Container(svc, "Service-invocation tier", "Go 1.26.4, Dapr Go SDK", "service-a / service-b / service-c — gRPC subscribers + invokers")
+  Container(gens, "Load and chaos tier", "Go 1.26.4, Dapr Go SDK", "publisher / consumer / datagen / errorgen — exercise Dapr from background loops")
   Container(daprd, "Dapr sidecars", "Dapr 1.17", "One daprd per pod — injected by the Dapr mutating webhook")
   ContainerDb(redis, "Redis", "redis:8-alpine, standalone", "Backs both 'statestore' and 'pubsub' Dapr components")
 }
