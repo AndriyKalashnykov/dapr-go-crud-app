@@ -80,7 +80,7 @@ jobs:
     needs: [changes]
     # On tag push, paths-filter sees HEAD == base (tag points at main) so
     # `code` is false — but we want every gate to run before publish.
-    if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')
+    if: ${{ !failure() && !cancelled() && (needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -95,7 +95,7 @@ jobs:
     needs: [changes, static-check]
     # On tag push, paths-filter sees HEAD == base (tag points at main) so
     # `code` is false — but we want every gate to run before publish.
-    if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')
+    if: ${{ !failure() && !cancelled() && (needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -117,7 +117,7 @@ jobs:
     needs: [changes, static-check]
     # On tag push, paths-filter sees HEAD == base (tag points at main) so
     # `code` is false — but we want every gate to run before publish.
-    if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')
+    if: ${{ !failure() && !cancelled() && (needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -132,7 +132,7 @@ jobs:
     needs: [changes, static-check]
     # On tag push, paths-filter sees HEAD == base (tag points at main) so
     # `code` is false — but we want every gate to run before publish.
-    if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')
+    if: ${{ !failure() && !cancelled() && (needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -147,7 +147,7 @@ jobs:
     needs: [changes, build, test]
     # On tag push, paths-filter sees HEAD == base (tag points at main) so
     # `code` is false — but we want every gate to run before publish.
-    if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')
+    if: ${{ !failure() && !cancelled() && (needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -213,7 +213,7 @@ jobs:
       # preserves original GitHub account casing (`AndriyKalashnykov/...`).
       # Lowercase once into $GITHUB_ENV so every downstream step sees the
       # right ref. (See `/harden-image-pipeline` §"GHCR namespace rule".)
-      - name: Compute lowercase KO_DOCKER_REPO
+      - name: Compute lowercase image repository
         run: |
           repo="${{ github.repository }}"
           echo "KO_DOCKER_REPO=ghcr.io/${repo,,}" >> "$GITHUB_ENV"
