@@ -31,20 +31,30 @@ func generateCalls(ctx context.Context) {
 	}
 }
 
+// envOr returns the value of the environment variable named key, or def when
+// the variable is not set. A set-but-empty variable returns its (empty) value,
+// matching the original os.LookupEnv-based defaulting.
+func envOr(key, def string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
+	return def
+}
+
+// buildInvokeURL assembles a Dapr service-invocation URL from its parts. Pure
+// and side-effect-free so the URL shape can be asserted in a unit test.
+func buildInvokeURL(host, port, app, method string) string {
+	return host + ":" + port + "/v1.0/invoke/" + app + "/method/" + method
+}
+
 func makeRequest() {
-	var DAPR_HOST, DAPR_HTTP_PORT string
-	var okHost, okPort bool
-	if DAPR_HOST, okHost = os.LookupEnv("DAPR_HOST"); !okHost {
-		DAPR_HOST = "http://localhost"
-	}
-	if DAPR_HTTP_PORT, okPort = os.LookupEnv("DAPR_HTTP_PORT"); !okPort {
-		DAPR_HTTP_PORT = "3500"
-	}
+	host := envOr("DAPR_HOST", "http://localhost")
+	port := envOr("DAPR_HTTP_PORT", "3500")
 
 	order := "{\"orderId\":\"" + time.Now().String() + "\"}"
 
 	// TODO TRY MAKE MATHOD API/HELLO
-	requestURL := DAPR_HOST + ":" + DAPR_HTTP_PORT + "/v1.0/invoke/" + "service-b" + "/method/" + "hello"
+	requestURL := buildInvokeURL(host, port, "service-b", "hello")
 	client := &http.Client{}
 	req, err := http.NewRequest("POST", requestURL, strings.NewReader(order))
 	if err != nil {

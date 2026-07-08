@@ -54,11 +54,30 @@ func publishEvent(ctx context.Context) {
 	}
 }
 
+// slowPathThreshold is the inclusive lower bound (over rand.Intn(100)) at which
+// echoHandler takes the artificial slow path that trips the resiliency policy.
+const slowPathThreshold = 45
+
+// shouldSleep reports whether a drawn value r selects the slow path. Randomness
+// is injected via r so this decision is deterministically testable.
+func shouldSleep(r int) bool {
+	return r >= slowPathThreshold
+}
+
+// buildEchoContent echoes an invocation back as response content. Pure so the
+// echo mapping can be asserted without an HTTP round-trip.
+func buildEchoContent(in *common.InvocationEvent) *common.Content {
+	return &common.Content{
+		Data:        in.Data,
+		ContentType: in.ContentType,
+		DataTypeURL: in.DataTypeURL,
+	}
+}
+
 func echoHandler(ctx context.Context, in *common.InvocationEvent) (*common.Content, error) {
 	log.Printf("echo - ContentType:%s, Verb:%s, QueryString:%s, %+v \n", in.ContentType, in.Verb, in.QueryString, string(in.Data))
 
-	r := rand.Intn(100)
-	if r >= 45 {
+	if shouldSleep(rand.Intn(100)) {
 		log.Println("randomly sleeping")
 		// randomly sleep for more than 1 second, so the resiliency policy kicks in
 		time.Sleep(1500 * time.Millisecond)
@@ -66,11 +85,7 @@ func echoHandler(ctx context.Context, in *common.InvocationEvent) (*common.Conte
 	}
 
 	// do something with the invocation here
-	return &common.Content{
-		Data:        in.Data,
-		ContentType: in.ContentType,
-		DataTypeURL: in.DataTypeURL,
-	}, nil
+	return buildEchoContent(in), nil
 }
 
 func getDaprClient() dapr.Client {

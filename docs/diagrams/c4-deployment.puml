@@ -26,7 +26,7 @@ Deployment_Node(k8s, "Kubernetes cluster", "KinD locally; Dapr installed via Hel
 
   Deployment_Node(ns_app, "Namespace: crud-app") {
     Deployment_Node(pod, "App pod  (× 9 Deployments, replicas 1-2)") {
-      Container(app, "App container", "Go 1.26.4", "one of crud / timeline / service-a..c / publisher / consumer / datagen / errorgen")
+      Container(app, "App container", "Go 1.26.5", "one of crud / timeline / service-a..c / publisher / consumer / datagen / errorgen")
       Container(sidecar, "daprd", "Dapr 1.17", "injected sidecar — app calls it on localhost:3500 / :50001", $tags="sidecar")
     }
     Deployment_Node(redispod, "Redis pod  (replicas 1)") {

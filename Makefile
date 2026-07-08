@@ -23,6 +23,9 @@ MONGO_VERSION := 8.0
 # renovate: datasource=docker depName=openzipkin/zipkin
 ZIPKIN_VERSION := 3.6
 
+# renovate: datasource=docker depName=redis
+REDIS_VERSION := 8-alpine
+
 # Intentional ROLLING pin — the catthehacker act runner base for `make ci-run`
 # (local-only convenience). `act-24.04` is republished periodically; versioning=loose
 # cannot order it, so Renovate won't bump it (by design — a dated pin adds churn for
@@ -118,7 +121,10 @@ test: deps
 
 #integration-test: @ Run integration tests (Testcontainers; requires Docker)
 integration-test: deps
-	@go test -race -tags=integration -v ./...
+	@REDIS_IMAGE="redis:$(REDIS_VERSION)" \
+		DAPRD_IMAGE="daprio/daprd:$(DAPR_HELM_VERSION)" \
+		MONGO_IMAGE="mongo:$(MONGO_VERSION)" \
+		go test -race -tags=integration -v ./...
 
 #build: @ Build all binaries
 build: deps

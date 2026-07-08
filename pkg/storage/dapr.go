@@ -130,7 +130,7 @@ func (s *DaprStorage) Delete(todo *todos.Todo) error {
 	if err != nil {
 		return err
 	}
-	err = s.newDaprClient().SaveState(context.Background(), statestoreName, indexKey, atb, nil, nil)
+	err = s.newDaprClient().SaveState(context.Background(), statestoreName, indexKey, atb, nil)
 	if err != nil {
 		return err
 	}

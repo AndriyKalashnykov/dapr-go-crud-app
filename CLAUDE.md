@@ -6,7 +6,7 @@
 
 ## Tech Stack
 
-- **Language**: Go 1.26.4 (pinned in `.mise.toml`)
+- **Language**: Go 1.26.5 (pinned in `.mise.toml`)
 - **HTTP**: Gin
 - **Distributed runtime**: Dapr Go SDK
 - **Storage**: Redis (Dapr state store + pub/sub broker), MongoDB 8.0 (alternative crud-app backend)
