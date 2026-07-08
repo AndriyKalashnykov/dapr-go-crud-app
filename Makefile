@@ -5,6 +5,13 @@ SHELL := /bin/bash
 # Put mise shims first so recipe sub-shells see mise-managed binaries.
 export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
 
+# Load operator overrides from .env (gitignored) BEFORE the `?=` defaults below,
+# so `.env` is authoritative for `make` (not just for a runtime that reads it).
+# `-include` (leading `-`) silently skips a missing .env → the `?=` defaults apply.
+# `.env.example` is the committed source of truth; `cp .env.example .env` to start.
+# Keep .env shell-clean: KEY=value, no quotes, no spaces around `=`, `$` as `$$`.
+-include .env
+
 APP_NAME       := dapr-go-crud-app
 CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
