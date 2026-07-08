@@ -26,10 +26,10 @@ cmd/           - 10 entry points (one subdir each): app, consumer, datagen, dumm
 pkg/           - Shared packages: server, storage, timeline, todos
 deploy/        - Kubernetes manifests (one per app)
 .dapr/         - Dapr configuration + components (pubsub, state, resiliency, subscriptions)
-docs/diagrams/ - C4-PlantUML sources (c4-context.puml, c4-container.puml) + vendored C4-PlantUML stdlib + committed out/*.png
+docs/diagrams/ - C4-PlantUML sources (c4-context.puml, c4-container.puml, c4-deployment.puml) + vendored C4-PlantUML stdlib + committed out/*.png
 .bin/          - Build output (gitignored)
 .github/       - CI workflows
-scripts/       - Helper scripts (mermaid-lint extractor)
+scripts/       - Helper scripts (mermaid-lint extractor, external-image health check)
 .mise.toml     - Toolchain pins (go, node, every static-analysis binary)
 ```
 
