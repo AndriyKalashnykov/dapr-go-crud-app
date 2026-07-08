@@ -43,7 +43,7 @@ make ci        # full local pipeline: deps + static-check + test + build
 | [Go](https://go.dev/dl/) | 1.26.4 | Pinned in `.mise.toml`; installed by `mise install` |
 | [Node.js](https://nodejs.org/) | 24 | Used by `make renovate-validate` (`npx renovate`); installed by `mise install` |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | latest | Required by `make deploy` |
-| [Helm](https://helm.sh/) | latest | Required by `make redis-deploy` |
+| [Helm](https://helm.sh/) | latest | Required by `make dapr-install` / `make e2e` (installs the Dapr control plane) |
 | [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | latest | Optional — `make dapr-run` for local sidecar |
 
 Install everything with one command:
@@ -265,14 +265,16 @@ Run `make help` to see all targets. They are grouped here for reference.
 |--------|-------------|
 | `make test` | Unit tests — `go test -race ./...` (seconds; no infra) |
 | `make integration-test` | Integration tests against real backends via Testcontainers — `go test -race -tags=integration -v ./...` (tens of seconds; requires Docker) |
-| `make e2e` | Full e2e — `kind-up` + `dapr-install` + `e2e-redis-deploy` + `e2e-apply` + `e2e-smoke` (minutes; requires Docker) |
+| `make e2e` | Full e2e — `kind-up` + `dapr-install` + `e2e-redis-deploy` + `e2e-load-images` + `e2e-apply` + `e2e-smoke` (minutes; requires Docker) |
 | `make e2e-smoke` | Smoke assertions only against an already-deployed cluster (CI-style invocation) |
 
 ### Static analysis (composite gate)
 
 | Target | Description |
 |--------|-------------|
-| `make static-check` | Composite gate: `format-check` + `lint` + `lint-ci` + `shellcheck` + `sec` + `vulncheck` + `secrets` + `trivy-fs` + `trivy-config` + `mermaid-lint` |
+| `make static-check` | Composite gate: `check-go-alignment` + `check-env` + `format-check` + `lint` + `lint-ci` + `shellcheck` + `sec` + `vulncheck` + `secrets` + `trivy-fs` + `trivy-config` + `mermaid-lint` + `diagrams-check` |
+| `make check-go-alignment` | Fail if the Go version disagrees between `go.mod` and `.mise.toml` (first `static-check` gate) |
+| `make check-env` | STOPPER gate — fail if the committed `.env.example` source-of-truth is missing |
 | `make format` | `gofmt -w .` (mutates tree) |
 | `make format-check` | Verify tree is gofmt-clean (CI gate) |
 | `make lint` | golangci-lint (gocritic enabled via `.golangci.yml`) |
@@ -284,6 +286,16 @@ Run `make help` to see all targets. They are grouped here for reference.
 | `make trivy-fs` | Trivy filesystem scan (vuln + secret + misconfig, HIGH/CRITICAL) |
 | `make trivy-config` | Trivy IaC scan over `deploy/` and `.dapr/` |
 | `make mermaid-lint` | Validate every ` ```mermaid ` block in `*.md` via the official Mermaid CLI |
+
+### Diagrams
+
+| Target | Description |
+|--------|-------------|
+| `make diagrams` | Render vendored C4-PlantUML sources to PNG (offline; `docs/diagrams/out/`) |
+| `make diagrams-check` | Verify committed diagram PNGs match current source (`static-check` gate) |
+| `make diagrams-clean` | Remove rendered diagram artefacts |
+| `make vendor-diagrams` | Re-download the pinned C4-PlantUML stdlib (manual; on a `PLANTUML_VERSION` bump) |
+| `make check-readme-images` | Verify external README badges resolve (manual; external hosts flake, not in `static-check`) |
 
 ### Container images
 
@@ -312,6 +324,7 @@ Run `make help` to see all targets. They are grouped here for reference.
 | `make dapr-install` | Install Dapr control plane via Helm into the kind cluster |
 | `make dapr-uninstall` | Uninstall Dapr control plane |
 | `make e2e-redis-deploy` | Apply `deploy/redis.yaml` into the kind cluster (context-pinned) |
+| `make e2e-load-images` | ko-build images locally and `kind load` each into the cluster |
 | `make e2e-apply` | Apply Dapr config + components + Deployments into the kind cluster (context-pinned) |
 
 ### CI
@@ -347,7 +360,7 @@ Runs on every push to `main`, on `v*` tags, on pull requests, and via `workflow_
 | `build` | `needs: [changes, static-check]` | `make build` + upload `.bin/` artifacts |
 | `test` | `needs: [changes, static-check]` | `make test` (unit) |
 | `integration-test` | `needs: [changes, static-check]` | `make integration-test` (Testcontainers) |
-| `e2e` | `needs: [changes, build]` | `helm/kind-action` → `make dapr-install` → `make e2e-redis-deploy` → `make e2e-apply` → `make e2e-smoke`; on failure dumps pod state + logs |
+| `e2e` | `needs: [changes, build, test]` | `helm/kind-action` → `make dapr-install` → `make e2e-redis-deploy` → `make e2e-load-images` (ko build + `kind load`) → `make e2e-apply` → `make e2e-smoke`; on failure dumps pod state + logs |
 | `docker` | `needs: [static-check, build, test, integration-test, e2e]`, `if: startsWith(github.ref, 'refs/tags/')`, `strategy.matrix.binary` × 10 | Tag-gated supply-chain pipeline per /harden-image-pipeline Pattern A: ko build local → Trivy image scan (CRITICAL/HIGH) → smoke test → ko publish multi-arch (`linux/amd64,linux/arm64`) → cosign keyless OIDC signing by digest. Permissions `packages: write` + `id-token: write` are job-scoped. |
 | `ci-pass` | `needs: [changes, mermaid-lint, static-check, build, test, integration-test, e2e, docker]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Jobs `skipped` on doc-only / non-tag pushes are treated as non-failure. Use this as the single required-status-check rule. |
 

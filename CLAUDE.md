@@ -56,9 +56,9 @@ make deps             # Install mise + every pinned tool from .mise.toml
 make build            # Compile all 10 binaries
 make test             # Unit tests: go test -race ./... (seconds, no infra)
 make integration-test # Testcontainers: go test -race -tags=integration -v ./... (Mongo via Testcontainers; needs Docker)
-make e2e              # Full chain: kind-up + dapr-install + e2e-redis-deploy + e2e-apply + e2e-smoke (minutes, needs Docker)
+make e2e              # Full chain: kind-up + dapr-install + e2e-redis-deploy + e2e-load-images + e2e-apply + e2e-smoke (minutes, needs Docker)
 make e2e-smoke        # Smoke-only against an already-deployed cluster (CI-style)
-make static-check     # Composite gate: format + lint + lint-ci + shellcheck + sec + vulncheck + secrets + trivy-fs + trivy-config + mermaid-lint + diagrams-check
+make static-check     # Composite gate: check-go-alignment + check-env + format-check + lint + lint-ci + shellcheck + sec + vulncheck + secrets + trivy-fs + trivy-config + mermaid-lint + diagrams-check
 make diagrams         # Render C4-PlantUML sources to docs/diagrams/out/*.png (offline; needs Docker)
 make vendor-diagrams  # Re-download the pinned C4-PlantUML stdlib (manual; on a PLANTUML_VERSION bump)
 make ci               # Full local pipeline: deps + static-check + test + integration-test + build
@@ -104,13 +104,13 @@ Triggers: push to `main`, `v*` tags, pull requests, and `workflow_call`.
 
 Jobs (with explicit dependency edges):
 
-1. **`changes`** — `dorny/paths-filter` (SHA-pinned). Uses a **positive allow-list** (`cmd/**`, `pkg/**`, `deploy/**`, `.dapr/**`, `scripts/**`, `docs/diagrams/**/*.puml`, `.github/workflows/**`, the root config files, `CLAUDE.md`) for `code`, plus a `docs` output (`README.md`). NOT a `'**'`+`'!**.md'` negation form — dorny's default `some` quantifier makes `'**'` always match, so negation lists are dead (classify everything as code). A NEW top-level code dir must be added to the allow-list or its changes silently skip CI. Doc-only changes (README/LICENSE/docs/PNGs) set `code=false` → heavy jobs skip.
+1. **`changes`** — `dorny/paths-filter` (SHA-pinned). Uses a **positive allow-list** (`cmd/**`, `pkg/**`, `deploy/**`, `.dapr/**`, `scripts/**`, `docs/diagrams/**/*.puml`, `.github/workflows/**`, the root config files, `CLAUDE.md`) for `code`, plus a `docs` output (`**.md`, consumed by the `mermaid-lint` job). NOT a `'**'`+`'!**.md'` negation form — dorny's default `some` quantifier makes `'**'` always match, so negation lists are dead (classify everything as code). A NEW top-level code dir must be added to the allow-list or its changes silently skip CI. Doc-only changes (README/LICENSE/docs/PNGs) set `code=false` → heavy jobs skip.
 2. **`mermaid-lint`** — `needs: [changes]`, gated by `code != 'true' && docs == 'true'`. Cheap checkout + `make mermaid-lint`. Validates the README's embedded Mermaid diagram on **doc-only** changes (which skip `static-check`, where `mermaid-lint` normally runs). Skipped on code changes (no double run).
 3. **`static-check`** — `needs: [changes]`, gated by `code`. Runs `make static-check`.
 4. **`build`** — `needs: [changes, static-check]`. Runs `make build`, uploads `.bin/` artifacts.
 5. **`test`** — `needs: [changes, static-check]`. Runs `make test` (unit).
 6. **`integration-test`** — `needs: [changes, static-check]`. Runs `make integration-test` (Testcontainers Mongo + httptest).
-7. **`e2e`** — `needs: [changes, build]`. Provisions KinD via `helm/kind-action`, installs Dapr via Helm, applies `deploy/redis.yaml` (upstream `redis:8-alpine` standalone — no Helm chart) plus the app manifests, runs `make e2e-smoke`. Diagnostic dump on failure.
+7. **`e2e`** — `needs: [changes, build, test]`. Provisions KinD via `helm/kind-action`, installs Dapr via Helm, applies `deploy/redis.yaml` (upstream `redis:8-alpine` standalone — no Helm chart), ko-builds + `kind load`s the images (`make e2e-load-images`), applies the app manifests, runs `make e2e-smoke`. Diagnostic dump on failure.
 8. **`docker`** — `needs: [static-check, build, test, integration-test, e2e]`, `if: startsWith(github.ref, 'refs/tags/')`, `strategy.matrix.binary` across all 10 cmds. Per /harden-image-pipeline Pattern A: ko build local → Trivy image scan → smoke test → ko publish multi-arch to GHCR → cosign keyless OIDC signing by digest. `provenance: false`/`sbom: false` (default — keeps the image index free of `unknown/unknown` entries so GHCR "OS / Arch" tab renders). Permissions: `contents: read`, `packages: write`, `id-token: write` (all job-scoped).
 9. **`ci-pass`** — `needs: [changes, mermaid-lint, static-check, build, test, integration-test, e2e, docker]`, `if: always()`. Aggregator that fails if any required job failed/cancelled. Jobs `skipped` on doc-only / non-tag pushes are treated as non-failure. Single status check to require in branch protection.
 

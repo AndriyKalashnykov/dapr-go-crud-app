@@ -28,7 +28,7 @@
   "platformAutomerge": true,
   "automerge": true,
   "automergeType": "pr",
-  "automergeStrategy": "squash",
+  "automergeStrategy": "merge",
   "ignoreTests": false,
   "vulnerabilityAlerts": {
     "labels": [
@@ -73,6 +73,23 @@
       "description": "Group all toolchain pins (Makefile + .mise.toml) into one PR",
       "matchManagers": ["custom.regex", "mise"],
       "groupName": "Toolchain"
+    },
+    {
+      "description": "The Makefile docker-datasource pins (via the custom.regex manager) are version-only — the matchString captures no currentDigest — so config:best-practices' bundled docker:pinDigests generates an unwritable pinDigest update that collides with and SUPPRESSES the version bump (froze mermaid-cli at 11.4.2 while 11.16.0 was available). Disable digest-pinning for them; the version pin is the reproducibility guarantee.",
+      "matchFileNames": ["Makefile"],
+      "matchDatasources": ["docker"],
+      "pinDigests": false
+    },
+    {
+      "description": "Do NOT digest-pin the project's OWN published images. deploy/*.yaml reference ghcr.io/<owner>/<repo>/<binary>:latest by design (imagePullPolicy: Always re-pulls latest on rollout); these are self-published, not upstream deps, and pinning them to a digest would defeat the :latest refresh.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/^ghcr\\.io/andriykalashnykov/dapr-go-crud-app//"],
+      "pinDigests": false
+    },
+    {
+      "description": "Group the Go toolchain across managers — the go.mod `go` directive (gomod) and the .mise.toml `go` pin (mise) both use the golang-version datasource; grouping them makes a Go bump land as ONE PR so it can't split-deadlock across managers (complements the Makefile check-go-alignment gate).",
+      "matchDatasources": ["golang-version"],
+      "groupName": "Go toolchain"
     },
     {
       "description": "PlantUML renderer: no automerge — a bump can change PNG bytes, and the hosted bot cannot run `make diagrams` to re-render + commit. A human shepherds each bump (make diagrams, commit PNGs). Own group so this does not disable Toolchain automerge.",
