@@ -23,6 +23,10 @@ MONGO_VERSION := 8.0
 # renovate: datasource=docker depName=openzipkin/zipkin
 ZIPKIN_VERSION := 3.6
 
+# Intentional ROLLING pin — the catthehacker act runner base for `make ci-run`
+# (local-only convenience). `act-24.04` is republished periodically; versioning=loose
+# cannot order it, so Renovate won't bump it (by design — a dated pin adds churn for
+# a dev-only image). Bump to `act-26.04` by hand at the next Ubuntu LTS.
 # renovate: datasource=docker depName=catthehacker/ubuntu versioning=loose
 ACT_UBUNTU_VERSION := act-24.04
 
@@ -213,7 +217,34 @@ check-readme-images:
 	@bash scripts/check-external-images.sh README.md
 
 #static-check: @ Composite quality gate (lint + ci + sec + vulncheck + secrets + trivy + mermaid + diagrams)
-static-check: format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint diagrams-check
+#check-go-alignment: @ Fail if the Go version disagrees between go.mod and .mise.toml
+check-go-alignment:
+	@gomod=$$(sed -nE 's/^go[[:space:]]+([0-9.]+).*/\1/p' go.mod); \
+	mise=$$(sed -nE 's/^go[[:space:]]*=[[:space:]]*"([0-9.]+)".*/\1/p' .mise.toml); \
+	if [ -z "$$gomod" ] || [ -z "$$mise" ]; then echo "ERROR: could not extract Go version from go.mod ($$gomod) / .mise.toml ($$mise)"; exit 1; fi; \
+	if [ "$$gomod" != "$$mise" ]; then \
+		echo "ERROR: Go version mismatch — go.mod=$$gomod .mise.toml=$$mise. Keep them aligned (Renovate groups them via the 'Go toolchain' rule)."; exit 1; \
+	fi
+
+#check-env: @ STOPPER gate — fail if the committed .env.example source-of-truth is missing
+check-env:
+	@test -f .env.example || { echo "ERROR: .env.example is missing (BLOCKING — the committed source of truth for every operator-tunable value)."; exit 1; }
+
+# Host ports a fixed-bind run flow requires free. Overridden per-flow via a
+# target-specific assignment (propagates to the check-ports prerequisite).
+CHECK_PORTS ?= 27017 8080 3500
+#check-ports: @ Fail early if a required host port is already bound, naming the holder
+check-ports:
+	@for p in $(CHECK_PORTS); do \
+		if (exec 3<>/dev/tcp/127.0.0.1/$$p) 2>/dev/null; then \
+			exec 3>&- 3<&- 2>/dev/null || true; \
+			holder=$$(docker ps --filter "publish=$$p" --format '{{.Names}}' 2>/dev/null | head -1); \
+			echo "ERROR: host port $$p is already in use$${holder:+ (container: $$holder)}. Free it or override the *_PORT."; exit 1; \
+		fi; \
+	done
+
+#static-check: @ Composite quality gate (align + env + lint + ci + sec + vulncheck + secrets + trivy + mermaid + diagrams)
+static-check: check-go-alignment check-env format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint diagrams-check
 
 #run: @ Run the main app locally (requires Dapr sidecar)
 run: deps
@@ -272,11 +303,13 @@ app-logs:
 	@kubectl logs -l app=crud-app -c crud-app -n $(APP_NAMESPACE)
 
 #mongo-run: @ Run MongoDB in Docker
-mongo-run:
+mongo-run: CHECK_PORTS = 27017
+mongo-run: check-ports
 	@docker run -it -p 27017:27017 mongo:$(MONGO_VERSION)
 
 #dapr-run: @ Run app under Dapr sidecar (depends on build)
-dapr-run: build
+dapr-run: CHECK_PORTS = 8080 3500
+dapr-run: check-ports build
 	@dapr run --app-id crud-app --app-port 8080 --dapr-http-port 3500 -- ./.bin/app serve -connStr dapr
 
 #zipkin-deploy: @ Deploy Zipkin to the current namespace
@@ -333,10 +366,10 @@ release:
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate: deps
 	@if [ -n "$$GH_ACCESS_TOKEN" ]; then \
-		GITHUB_COM_TOKEN=$$GH_ACCESS_TOKEN npx --yes renovate --platform=local; \
+		GITHUB_COM_TOKEN=$$GH_ACCESS_TOKEN npx --yes renovate@latest --platform=local; \
 	else \
 		echo "Warning: GH_ACCESS_TOKEN not set, some dependency lookups may fail"; \
-		npx --yes renovate --platform=local; \
+		npx --yes renovate@latest --platform=local; \
 	fi
 
 #deps-prune: @ Remove unused Go dependencies (writes go.mod/go.sum)
@@ -357,9 +390,11 @@ deps-prune-check: deps
 cleanup-runs:
 	@if [ -z "$(GH_REPO)" ]; then echo "Error: GH_REPO is empty (gh CLI not authenticated)"; exit 1; fi
 	@CUTOFF=$$(date -u -d "$(RETAIN_DAYS) days ago" +%Y-%m-%dT%H:%M:%SZ); \
-	gh run list --repo "$(GH_REPO)" --json databaseId,createdAt --limit 200 \
-	  --jq "sort_by(.createdAt) | reverse | .[$(KEEP_MINIMUM):] | .[] | select(.createdAt < \"$$CUTOFF\") | .databaseId" \
-	| xargs -r -I{} gh run delete {} --repo "$(GH_REPO)"
+	OPEN_SHAS=$$(gh pr list --repo "$(GH_REPO)" --state open --json headRefOid --jq '[.[].headRefOid]'); \
+	gh run list --repo "$(GH_REPO)" --json databaseId,createdAt,workflowName,headSha --limit 300 \
+	  | jq -r --arg cutoff "$$CUTOFF" --argjson keep $(KEEP_MINIMUM) --argjson open "$$OPEN_SHAS" \
+	      'group_by(.workflowName) | map(sort_by(.createdAt) | reverse | .[$$keep:]) | add // [] | .[] | select(.createdAt < $$cutoff) | select(.headSha as $$s | ($$open | index($$s)) | not) | .databaseId' \
+	  | xargs -r -I{} gh run delete {} --repo "$(GH_REPO)"
 
 #kind-up: @ Create KinD cluster (idempotent)
 kind-up: deps
@@ -458,13 +493,18 @@ ci: deps static-check test integration-test build
 
 #ci-run: @ Run GitHub Actions workflow locally via act
 ci-run: deps
-	@act push --container-architecture linux/amd64 \
-		-P ubuntu-24.04=catthehacker/ubuntu:$(ACT_UBUNTU_VERSION) \
+	@# -P key MUST match `runs-on:` (every job uses ubuntu-latest); the token is
+	@# forwarded env-only via `--secret GITHUB_TOKEN` (NEVER `KEY=value` in argv)
+	@# so jdx/mise-action's `mise install` doesn't hit GitHub's anonymous 60/hr limit.
+	@GITHUB_TOKEN="$$(gh auth token 2>/dev/null)" act push --container-architecture linux/amd64 \
+		-P ubuntu-latest=catthehacker/ubuntu:$(ACT_UBUNTU_VERSION) \
+		--secret GITHUB_TOKEN \
+		--pull=false \
 		--artifact-server-path /tmp/act-artifacts \
 		--bind
 
 .PHONY: help deps test integration-test build clean lint format format-check sec vulncheck secrets \
-	trivy-fs trivy-config lint-ci shellcheck mermaid-lint diagrams diagrams-clean diagrams-check vendor-diagrams check-readme-images static-check run update update-minor \
+	trivy-fs trivy-config lint-ci shellcheck mermaid-lint diagrams diagrams-clean diagrams-check vendor-diagrams check-readme-images check-go-alignment check-env check-ports static-check run update update-minor \
 	image-build image-scan image-smoke-test image-sign push rollout app-logs mongo-run dapr-run zipkin-deploy \
 	redis-deploy apply deploy deploy-full release \
 	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run \

@@ -10,7 +10,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  actions: write
+  contents: read        # actions/checkout
+  actions: write        # gh run delete
+  pull-requests: read   # gh pr list — retain open-PR runs (their ci-pass check)
 
 jobs:
   cleanup:
