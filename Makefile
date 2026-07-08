@@ -21,7 +21,7 @@ CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "de
 MONGO_VERSION := 8.0
 
 # renovate: datasource=docker depName=openzipkin/zipkin
-ZIPKIN_VERSION := 3.6
+ZIPKIN_VERSION := 3.6.1
 
 # renovate: datasource=docker depName=redis
 REDIS_VERSION := 8-alpine
@@ -34,7 +34,7 @@ REDIS_VERSION := 8-alpine
 ACT_UBUNTU_VERSION := act-24.04
 
 # renovate: datasource=docker depName=minlag/mermaid-cli
-MERMAID_CLI_VERSION := 11.4.2
+MERMAID_CLI_VERSION := 11.16.0
 
 # renovate: datasource=docker depName=plantuml/plantuml
 PLANTUML_VERSION := 1.2026.6
@@ -88,7 +88,7 @@ GH_REPO      ?= $(shell gh repo view --json nameWithOwner -q .nameWithOwner 2>/d
 # === KinD / Dapr e2e ===
 KIND_CLUSTER_NAME ?= dapr-go-crud-app
 # renovate: datasource=helm depName=dapr registryUrl=https://dapr.github.io/helm-charts
-DAPR_HELM_VERSION ?= 1.17.1
+DAPR_HELM_VERSION ?= 1.18.1
 # Context-pinned wrappers — keep e2e flow safely scoped to the kind cluster
 # regardless of any other ~/.kube/config currently-context drift across
 # parallel make invocations from sibling projects.
