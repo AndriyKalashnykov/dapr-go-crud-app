@@ -18,7 +18,7 @@ Learn Dapr by running a real Go microservice topology on Kubernetes. The **learn
 | Distributed runtime | Dapr Go SDK | Sidecar abstracts state store, pub/sub, and service invocation behind a single API. |
 | State store + broker | Redis 8 (upstream image) | Single backing store for both `statestore` and `pubsub` Dapr components — one Deployment in `deploy/redis.yaml`, no Helm chart. |
 | Optional backend | MongoDB 8.0 | Demonstrates pluggable storage interface (`storage.TodosStorage`) without touching app code. |
-| Container build | ko 0.18 | Builds OCI images directly from Go source; no Dockerfile. |
+| Container build | ko 0.19 | Builds OCI images directly from Go source; no Dockerfile. |
 | Orchestration | Kubernetes | Dapr injector + sidecar runs as `daprd` per pod via deployment annotations. |
 | Toolchain manager | mise | Single source of truth for Go, Node, and every static-analysis binary; replaces gvm + nvm. |
 | CI | GitHub Actions | Composite quality gate (`make static-check`) gated by a `changes` filter and a `ci-pass` aggregator. |
