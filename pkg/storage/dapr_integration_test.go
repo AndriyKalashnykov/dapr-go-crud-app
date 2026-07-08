@@ -143,7 +143,7 @@ func startDaprInfra(t *testing.T) *daprInfra {
 	t.Helper()
 
 	redisImage := env("REDIS_IMAGE", "redis:8-alpine")
-	daprdImage := env("DAPRD_IMAGE", "daprio/daprd:1.17.1")
+	daprdImage := env("DAPRD_IMAGE", "daprio/daprd:1.18.1")
 	// Internal container ports (daprd gRPC/HTTP inside the network) — the
 	// host-mapped ports are ephemeral/dynamic by design.
 	daprGRPCInternal := env("DAPRD_GRPC_PORT", "50001")

@@ -13,13 +13,13 @@ node           = "24"
 "aqua:aquasecurity/trivy"               = "0.72.0"
 "aqua:rhysd/actionlint"                 = "1.7.12"
 "aqua:koalaman/shellcheck"              = "0.11.0"
-"go:golang.org/x/vuln/cmd/govulncheck"  = "1.3.0"
+"go:golang.org/x/vuln/cmd/govulncheck"  = "1.5.0"
 
 # Kubernetes / Dapr e2e toolchain
 "aqua:kubernetes-sigs/kind"             = "0.32.0"
 "aqua:kubernetes/kubernetes/kubectl"    = "1.36.2"
-"aqua:helm/helm"                        = "3.20.2"
-"aqua:dapr/cli"                         = "1.17.1"
+"aqua:helm/helm"                        = "4.2.2"
+"aqua:dapr/cli"                         = "1.18.0"
 
 # Image-supply-chain toolchain — ko (already above), cosign for signing,
 # crane for `make image-sign` digest lookups.

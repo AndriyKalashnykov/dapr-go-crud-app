@@ -1,5 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "platformAutomerge is deliberately false: main's Repository Ruleset REQUIRES the ci-pass check, and platformAutomerge:true triggers the registration race (native auto-merge can complete in the ~1s window before ci-pass registers, landing a red bump). Do NOT flip it to true — Renovate merges via its own run after re-confirming green. automergeStrategy is 'merge' (NOT 'squash') because the same Ruleset disallows squash merges."
+  ],
   "extends": [
     "config:best-practices",
     ":semanticCommitType(chore)"
@@ -73,6 +76,18 @@
       "description": "Group all toolchain pins (Makefile + .mise.toml) into one PR",
       "matchManagers": ["custom.regex", "mise"],
       "groupName": "Toolchain"
+    },
+    {
+      "description": "Hold every mise aqua: tool (github-tags datasource) 3 days so the upstream GitHub Release artifacts mise's aqua: backend installs are published before the PR opens — prevents the tag-before-publish 404 (`mise install` fetches the release, but github-tags sees the tag first). Covers minor/patch bumps that the major-only buffer misses (kapp, k9s, trivy have all hit this).",
+      "matchManagers": ["mise"],
+      "matchDatasources": ["github-tags"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Hold node to major 24. node is used only by `make renovate-validate`, and renovate@latest requires node ^24.11 while node 25+ dropped the bundled corepack — so an unguarded mise bump to 25/26 would self-break the validate gate.",
+      "matchManagers": ["mise"],
+      "matchDepNames": ["node"],
+      "allowedVersions": "/^24\\./"
     },
     {
       "description": "The Makefile docker-datasource pins (via the custom.regex manager) are version-only — the matchString captures no currentDigest — so config:best-practices' bundled docker:pinDigests generates an unwritable pinDigest update that collides with and SUPPRESSES the version bump (froze mermaid-cli at 11.4.2 while 11.16.0 was available). Disable digest-pinning for them; the version pin is the reproducibility guarantee.",

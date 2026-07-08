@@ -145,10 +145,11 @@ Toolchain bumps (Makefile + `.mise.toml`) are grouped into a single PR; Dapr SDK
 Deferred items (with the trigger/rationale for each) — not open bugs; each was
 consciously held out of an automated apply. Prune an item when its work lands.
 
-- **helm 3.20 → 4.x** — a MAJOR upstream bump is available (helm is pinned in `.mise.toml`). Deferred: Helm 4 has breaking chart-API / CLI changes; the `dapr-install`/`e2e` path uses `helm`, so this needs a manual migration review, not a drop-in.
-- **dapr/cli 1.17 → 1.18** (`.mise.toml`) — a Dapr **runtime** bump. Deferred because it must land as a coordinated change: align `DAPR_HELM_VERSION` (Makefile) to match, and update the C4 diagram tech-strings + prose that say "Dapr 1.17". Not a version-only drop-in.
-- **aquasecurity/trivy-action** (`ci.yml`, `docker` job) is many majors behind latest — a large bump. Deferred: the `docker` job is tag-gated, so the change can't be validated without cutting a tag; verify a scan still passes on the next release tag before/after bumping.
-- **`/test-coverage-analysis` findings** — `scripts/e2e-smoke.sh` hardcodes local port-forward aliases `18080`/`18081` (should be kernel-ephemeral for parallel-run safety — HIGH); the `events` fan-out assertion is masked (passes if *either* subscriber sees the event, `service-c=0` downgraded to WARN, while `service-c` now carries the grpc annotation — MEDIUM). Run `/test-coverage-analysis` to apply.
+- _Nothing currently deferred._ (helm 3→4, the Dapr 1.17→1.18 runtime/CLI bump,
+  the trivy-action major, and the `/test-coverage-analysis` port/fan-out findings
+  were all applied 2026-07-08.) All toolchain versions are pinned in `.mise.toml` /
+  `go.mod` / the Makefile and Renovate-tracked; run `/upgrade-analysis` for a
+  freshness check.
 
 ## Known Limitations
 
