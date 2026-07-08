@@ -1,5 +1,5 @@
 [![CI](https://github.com/AndriyKalashnykov/dapr-go-crud-app/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndriyKalashnykov/dapr-go-crud-app/actions/workflows/ci.yml)
-[![Hits](https://hits.sh/github.com/AndriyKalashnykov/dapr-go-crud-app.svg?view=today-total&style=plastic)](https://hits.sh/github.com/AndriyKalashnykov/dapr-go-crud-app/)
+[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=AndriyKalashnykov.dapr-go-crud-app&left_color=gray&right_color=brightgreen&style=plastic)](https://github.com/AndriyKalashnykov/dapr-go-crud-app)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://app.renovatebot.com/dashboard#github/AndriyKalashnykov/dapr-go-crud-app)
 
@@ -7,29 +7,7 @@
 
 Learn Dapr by running a real Go microservice topology on Kubernetes. Ten services exercise the four building blocks — pub/sub, state store, service invocation, resiliency — across a single Redis backplane. Multi-arch images are built with `ko`, signed by cosign keyless OIDC, and tag-published to GHCR.
 
-```mermaid
-C4Context
-title System Context — Dapr Go CRUD App
-
-Person(user, "User", "REST client")
-
-Boundary(b1, "Kubernetes namespace: crud-app") {
-  System(crud, "crud-app", "REST /api/v1/todos; Dapr state + pubsub")
-  System(timeline, "timeline-app", "Subscribes 'todos' topic; serves timeline")
-  System(svc, "service-a/b/c", "Dapr service-invocation chain + 'events' topic")
-  System(gen, "Load and chaos generators", "publisher, consumer, datagen, dummy, errorgen")
-}
-
-System_Ext(redis, "Redis", "Dapr state store + pub/sub broker")
-System_Ext(mongo, "MongoDB", "Optional crud-app backend")
-
-Rel(user, crud, "HTTP")
-Rel(crud, redis, "Save state + Publish 'todos'", "Dapr SDK")
-Rel(timeline, redis, "Subscribe 'todos'", "Dapr SDK")
-Rel(svc, redis, "Publish/Subscribe 'events'", "Dapr SDK")
-Rel(gen, redis, "Publish/Subscribe 'events'", "Dapr SDK")
-Rel(crud, mongo, "Optional storage backend")
-```
+<p align="center"><img src="docs/diagrams/out/c4-context.png" alt="C4 System Context — Dapr Go CRUD App" width="900"></p>
 
 ## Tech Stack
 
@@ -78,34 +56,7 @@ make deps
 
 The system runs as 10 sidecar-injected pods in the `crud-app` namespace, sharing a single Redis instance as both the Dapr state store and the pub/sub broker.
 
-```mermaid
-C4Container
-title Container View — dapr-go-crud-app
-
-Person(user, "User", "REST client")
-
-System_Boundary(b1, "Kubernetes namespace: crud-app") {
-  Container(rest, "REST tier", "Go 1.26.4, Gin", "crud-app + timeline-app + dummy-app — the only HTTP listeners")
-  Container(svc, "Service-invocation tier", "Go 1.26.4, Dapr Go SDK", "service-a / service-b / service-c — gRPC subscribers + invokers")
-  Container(gens, "Load and chaos tier", "Go 1.26.4, Dapr Go SDK", "publisher / consumer / datagen / errorgen — exercise Dapr from background loops")
-  Container(daprd, "Dapr sidecars", "Dapr 1.17", "One daprd per pod — injected by the Dapr mutating webhook")
-  ContainerDb(redis, "Redis", "redis:8-alpine, standalone", "Backs both 'statestore' and 'pubsub' Dapr components")
-}
-
-System_Boundary(b2, "Kubernetes namespace: dapr-system") {
-  Container(daprctl, "Dapr control plane", "Helm chart dapr/dapr 1.17", "operator + sentry + placement + scheduler")
-}
-
-ContainerDb(mongo, "MongoDB", "mongo:8.0 (optional)", "Alternative crud-app storage when -connStr is a Mongo URI")
-
-Rel(user, rest, "HTTP", "REST")
-Rel(rest, daprd, "Save state, publish 'todos'", "Dapr SDK")
-Rel(svc, daprd, "Service invocation, subscribe 'events'", "Dapr SDK")
-Rel(gens, daprd, "Periodic publishes + state writes", "Dapr SDK")
-Rel(daprd, redis, "All state + pub/sub traffic", "Redis Streams + RESP")
-Rel(daprd, daprctl, "mTLS bootstrap, placement, etc.", "gRPC")
-Rel(rest, mongo, "Optional CRUD backend", "MongoDB wire")
-```
+<img src="docs/diagrams/out/c4-container.png" alt="C4 Container View — Dapr Go CRUD App" width="800">
 
 Key facts:
 
@@ -113,6 +64,32 @@ Key facts:
 - **All app traffic goes through the daprd sidecar.** The apps never speak to Redis directly; they call `client.SaveState(...)` / `client.PublishEvent(...)` / `client.InvokeMethod(...)` against `localhost:50001` (the in-pod sidecar's gRPC port), and the sidecar talks to Redis on their behalf. That's the pattern the Dapr control plane (`dapr-system`) is bootstrapping.
 - **Redis is `redis:8-alpine` standalone**, not a Helm chart. ~30 MB image, ephemeral storage (`emptyDir` for `/data`), password-protected via a Secret generated at deploy-time. Replaces an earlier `bitnami/redis` chart dependency.
 - **MongoDB is optional**, used only when `crud-app` is launched with `-connStr=mongodb://...`. The default `-connStr=dapr` path goes through Redis via the Dapr state store.
+
+### Event flow
+
+The C4 diagrams above show what exists; this sequence shows the pub/sub round-trip from a create to the timeline read — every hop goes through the daprd sidecar, never Redis directly.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant C as crud-app
+  participant DC as crud sidecar
+  participant R as Redis
+  participant DT as timeline sidecar
+  participant T as timeline-app
+
+  U->>C: POST /api/v1/todos
+  C->>DC: SaveState + PublishEvent 'todos'
+  DC->>R: state write + XADD 'todos'
+  R-->>DT: deliver 'todos' (XREADGROUP)
+  DT->>T: POST /todos (timeline-sub)
+  T-->>DT: 200 OK
+  U->>T: GET /events
+  T-->>U: recent CRUD events
+```
+
+Source files: [`docs/diagrams/c4-context.puml`](docs/diagrams/c4-context.puml), [`docs/diagrams/c4-container.puml`](docs/diagrams/c4-container.puml) (C4-PlantUML, vendored stdlib under `docs/diagrams/C4-PlantUML/`); regenerate the PNGs with `make diagrams`.
 
 ### Apps
 

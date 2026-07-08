@@ -1,0 +1,52 @@
+@startuml c4-container
+' Vendored C4-PlantUML (see docs/diagrams/C4-PlantUML/); -DRELATIVE_INCLUDE=. makes
+' the stdlib's internal includes resolve locally (no network fetch at render time).
+!include C4-PlantUML/C4_Container.puml
+
+LAYOUT_LEFT_RIGHT()
+
+' Modern flat styling: no shadows, sharp corners, clean sans-serif, modern palette.
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam roundCorner 4
+skinparam defaultFontName "Inter, Helvetica, Arial, sans-serif"
+skinparam defaultFontSize 13
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.2
+skinparam rectangleBorderThickness 1.3
+
+UpdateElementStyle("person",    $fontColor="#FFFFFF", $bgColor="#0F766E", $borderColor="#134E4A")
+UpdateElementStyle("container", $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
+UpdateBoundaryStyle($bgColor="#F1F5F9", $borderColor="#94A3B8", $fontColor="#1E293B")
+' ContainerDb() shares the plain `container` tag (no distinct DB tag in C4-PlantUML),
+' so a custom tag is needed to colour datastores violet.
+AddElementTag("datastore", $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
+
+title Container View — Dapr Go CRUD App
+
+Person(user, "User", "REST client")
+
+System_Boundary(b1, "Kubernetes namespace: crud-app") {
+  Container(rest, "REST tier", "Go 1.26.4, Gin", "crud-app + timeline-app + dummy-app — the only HTTP listeners")
+  Container(svc, "Service-invocation tier", "Go 1.26.4, Dapr Go SDK", "service-a / service-b / service-c — gRPC subscribers + invokers")
+  Container(gens, "Load and chaos tier", "Go 1.26.4, Dapr Go SDK", "publisher / consumer / datagen / errorgen — exercise Dapr from background loops")
+  Container(daprd, "Dapr sidecars", "Dapr 1.17", "One daprd per pod — injected by the Dapr mutating webhook")
+  ContainerDb(redis, "Redis", "redis:8-alpine, standalone", "Backs both 'statestore' and 'pubsub' Dapr components", $tags="datastore")
+}
+
+System_Boundary(b2, "Kubernetes namespace: dapr-system") {
+  Container(daprctl, "Dapr control plane", "Helm chart dapr/dapr 1.17", "operator + sentry + placement + scheduler")
+}
+
+ContainerDb(mongo, "MongoDB", "mongo:8.0 (optional)", "Alternative crud-app storage when -connStr is a Mongo URI", $tags="datastore")
+
+Rel(user, rest, "Manages todos", "HTTPS / JSON")
+Rel(rest, daprd, "Save state, publish 'todos'", "Dapr SDK")
+Rel(svc, daprd, "Service invocation, subscribe 'events'", "Dapr SDK")
+Rel(gens, daprd, "Periodic publishes + state writes", "Dapr SDK")
+Rel(daprd, redis, "All state + pub/sub traffic", "Redis Streams + RESP")
+Rel(daprd, daprctl, "mTLS bootstrap, placement", "gRPC")
+Rel(rest, mongo, "Optional CRUD backend", "MongoDB wire")
+
+SHOW_LEGEND()
+@enduml

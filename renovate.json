@@ -73,6 +73,13 @@
       "description": "Group all toolchain pins (Makefile + .mise.toml) into one PR",
       "matchManagers": ["custom.regex", "mise"],
       "groupName": "Toolchain"
+    },
+    {
+      "description": "PlantUML renderer: no automerge — a bump can change PNG bytes, and the hosted bot cannot run `make diagrams` to re-render + commit. A human shepherds each bump (make diagrams, commit PNGs). Own group so this does not disable Toolchain automerge.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["plantuml/plantuml"],
+      "groupName": "PlantUML renderer",
+      "automerge": false
     }
   ]
 }

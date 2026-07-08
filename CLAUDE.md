@@ -11,12 +11,13 @@
 - **Distributed runtime**: Dapr Go SDK
 - **Storage**: Redis (Dapr state store + pub/sub broker), MongoDB 8.0 (alternative crud-app backend)
 - **Container build**: ko 0.18 (publishes multi-arch images directly from Go source — no Dockerfile)
+- **Architecture diagrams**: C4-PlantUML (Context + Container) rendered offline from a vendored stdlib (`docs/diagrams/C4-PlantUML/`) to committed PNGs via `make diagrams`; Mermaid for the runtime sequence flow
 - **Image registry**: GHCR `ghcr.io/andriykalashnykov/dapr-go-crud-app/<binary>` (repo-namespace path; `GITHUB_TOKEN` cannot publish to user-namespace)
 - **Image supply-chain**: Trivy image scan (HIGH/CRITICAL blocking) → smoke test → cosign keyless OIDC signing by digest. Buildkit attestations OFF (Pattern A) so the GHCR "OS / Arch" tab renders
 - **Orchestration**: Kubernetes (Dapr injector + sidecars)
 - **Toolchain manager**: mise — single source of truth for Go, Node, golangci-lint, ko, act, gosec, gitleaks, trivy, actionlint, shellcheck, govulncheck
 - **CI**: GitHub Actions (composite `make static-check` gate, `dorny/paths-filter` change detector, `ci-pass` aggregator)
-- **Static analysis**: golangci-lint (gocritic enabled), gosec, govulncheck, gitleaks, trivy (fs + config), actionlint, shellcheck, mermaid-cli
+- **Static analysis**: golangci-lint (gocritic enabled), gosec, govulncheck, gitleaks, trivy (fs + config), actionlint, shellcheck, mermaid-cli, C4-PlantUML diagrams drift gate (`diagrams-check`)
 
 ## Project Structure
 
@@ -25,6 +26,7 @@ cmd/           - 10 entry points (one subdir each): app, consumer, datagen, dumm
 pkg/           - Shared packages: server, storage, timeline, todos
 deploy/        - Kubernetes manifests (one per app)
 .dapr/         - Dapr configuration + components (pubsub, state, resiliency, subscriptions)
+docs/diagrams/ - C4-PlantUML sources (c4-context.puml, c4-container.puml) + vendored C4-PlantUML stdlib + committed out/*.png
 .bin/          - Build output (gitignored)
 .github/       - CI workflows
 scripts/       - Helper scripts (mermaid-lint extractor)
@@ -56,7 +58,9 @@ make test             # Unit tests: go test -race ./... (seconds, no infra)
 make integration-test # Testcontainers: go test -race -tags=integration -v ./... (Mongo via Testcontainers; needs Docker)
 make e2e              # Full chain: kind-up + dapr-install + e2e-redis-deploy + e2e-apply + e2e-smoke (minutes, needs Docker)
 make e2e-smoke        # Smoke-only against an already-deployed cluster (CI-style)
-make static-check     # Composite gate: format + lint + lint-ci + shellcheck + sec + vulncheck + secrets + trivy-fs + trivy-config + mermaid-lint
+make static-check     # Composite gate: format + lint + lint-ci + shellcheck + sec + vulncheck + secrets + trivy-fs + trivy-config + mermaid-lint + diagrams-check
+make diagrams         # Render C4-PlantUML sources to docs/diagrams/out/*.png (offline; needs Docker)
+make vendor-diagrams  # Re-download the pinned C4-PlantUML stdlib (manual; on a PLANTUML_VERSION bump)
 make ci               # Full local pipeline: deps + static-check + test + integration-test + build
 make ci-run           # Run GitHub Actions workflow locally via act
 make clean            # Remove .bin and coverage output
@@ -132,6 +136,8 @@ In CI, `jdx/mise-action` reads `.mise.toml` and installs the same tool set — n
 - `custom.regex` — Makefile constants annotated with `# renovate:` comments
 
 Toolchain bumps (Makefile + `.mise.toml`) are grouped into a single PR; Dapr SDK bumps grouped separately. Vulnerability fixes fast-tracked (`minimumReleaseAge: "0 days"`); major updates wait 3 days. `automergeType: "pr"` (compatible with branch-protection required-status-checks).
+
+**`plantuml/plantuml` (the diagram renderer) is deliberately `automerge: false`** (own "PlantUML renderer" group). A bump can change rendered PNG bytes, and `diagrams-check` would then fail — but the hosted Renovate bot cannot run `make diagrams` to re-render, so an automerged bump would be a standing red PR. Shepherd each PlantUML bump by hand: on the PR branch run `make diagrams`, commit the re-rendered PNGs, then merge. The C4-PlantUML **stdlib** is vendored under `docs/diagrams/C4-PlantUML/` and NOT Renovate-tracked (`C4_PLANTUML_VERSION` in the Makefile); bump it manually with `make vendor-diagrams` + `make diagrams`.
 
 ## Skills
 
