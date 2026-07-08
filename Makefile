@@ -22,6 +22,26 @@ ACT_UBUNTU_VERSION := act-24.04
 # renovate: datasource=docker depName=minlag/mermaid-cli
 MERMAID_CLI_VERSION := 11.4.2
 
+# renovate: datasource=docker depName=plantuml/plantuml
+PLANTUML_VERSION := 1.2026.6
+
+# C4-PlantUML stdlib is VENDORED under docs/diagrams/C4-PlantUML/ and rendered
+# offline via -DRELATIVE_INCLUDE=. (no raw.githubusercontent.com fetch at render
+# time, so diagrams-check can't flake on a shared-runner HTTP 429). NOT
+# Renovate-tracked: the hosted bot can't re-vendor+re-render, so a tracked bump
+# would be a standing red PR under automerge. Bump by hand: `make vendor-diagrams`
+# then `make diagrams`, and commit the re-rendered PNGs.
+C4_PLANTUML_VERSION := v2.13.0
+
+# PlantUML C4 architecture diagrams (source + committed PNG both under docs/diagrams/).
+DIAGRAM_DIR   := docs/diagrams
+DIAGRAM_SRC   := $(wildcard $(DIAGRAM_DIR)/*.puml)
+DIAGRAM_OUT   := $(patsubst $(DIAGRAM_DIR)/%.puml,$(DIAGRAM_DIR)/out/%.png,$(DIAGRAM_SRC))
+DIAGRAM_STAMP := $(DIAGRAM_DIR)/out/.plantuml-$(PLANTUML_VERSION).stamp
+PLANTUML_RUN  := docker run --rm --network none -v "$(CURDIR)/$(DIAGRAM_DIR):/work" -w /work \
+	--user $$(id -u):$$(id -g) -e HOME=/tmp -e _JAVA_OPTIONS=-Duser.home=/tmp \
+	plantuml/plantuml:$(PLANTUML_VERSION) -DRELATIVE_INCLUDE=.
+
 # === Registry (overridable from env) ===
 # Default to GHCR repo-namespace path so `GITHUB_TOKEN` can publish
 # (the user-namespace path `ghcr.io/andriykalashnykov/<pkg>` requires a
@@ -144,8 +164,45 @@ shellcheck: deps
 mermaid-lint:
 	@MERMAID_CLI_VERSION=$(MERMAID_CLI_VERSION) bash scripts/mermaid-lint.sh
 
-#static-check: @ Composite quality gate (lint + ci + sec + vulncheck + secrets + trivy + mermaid)
-static-check: format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint
+#diagrams: @ Render vendored C4-PlantUML sources to PNG (offline; docs/diagrams/out)
+diagrams: $(DIAGRAM_OUT)
+
+$(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_STAMP)
+	@mkdir -p $(DIAGRAM_DIR)/out
+	@$(PLANTUML_RUN) -tpng -o out $(notdir $<)
+
+# Version-stamped sentinel: a PLANTUML_VERSION bump changes the stamp's NAME, so
+# the old stamp no longer satisfies the prereq and every PNG re-renders — catches
+# the "renderer bumped but PNG not regenerated" drift the git-diff gate misses.
+$(DIAGRAM_STAMP):
+	@mkdir -p $(DIAGRAM_DIR)/out
+	@rm -f $(DIAGRAM_DIR)/out/.plantuml-*.stamp
+	@touch $@
+
+#diagrams-clean: @ Remove rendered diagram artefacts
+diagrams-clean:
+	@rm -rf $(DIAGRAM_DIR)/out
+
+#diagrams-check: @ Verify committed diagram PNGs match current source (CI gate)
+diagrams-check: diagrams
+	@git diff --exit-code -- $(DIAGRAM_DIR)/out >/dev/null 2>&1 || { \
+		echo "ERROR: committed diagram PNG is stale — run 'make diagrams' and commit."; \
+		git --no-pager diff --stat -- $(DIAGRAM_DIR)/out; exit 1; }
+	@U=$$(git ls-files --others --exclude-standard -- $(DIAGRAM_DIR)/out); \
+	[ -z "$$U" ] || { echo "ERROR: rendered diagram not committed/staged: $$U"; exit 1; }
+	@echo "diagrams-check: rendered output matches committed source."
+
+#vendor-diagrams: @ Re-download the pinned C4-PlantUML stdlib into docs/diagrams/C4-PlantUML
+vendor-diagrams:
+	@mkdir -p $(DIAGRAM_DIR)/C4-PlantUML
+	@for f in C4.puml C4_Context.puml C4_Container.puml; do \
+		curl -sSL "https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/$(C4_PLANTUML_VERSION)/$$f" \
+			-o "$(DIAGRAM_DIR)/C4-PlantUML/$$f"; \
+	done
+	@echo "Vendored C4-PlantUML $(C4_PLANTUML_VERSION). Run 'make diagrams' and commit the re-rendered PNGs."
+
+#static-check: @ Composite quality gate (lint + ci + sec + vulncheck + secrets + trivy + mermaid + diagrams)
+static-check: format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint diagrams-check
 
 #run: @ Run the main app locally (requires Dapr sidecar)
 run: deps
@@ -396,7 +453,7 @@ ci-run: deps
 		--bind
 
 .PHONY: help deps test integration-test build clean lint format format-check sec vulncheck secrets \
-	trivy-fs trivy-config lint-ci shellcheck mermaid-lint static-check run update update-minor \
+	trivy-fs trivy-config lint-ci shellcheck mermaid-lint diagrams diagrams-clean diagrams-check vendor-diagrams static-check run update update-minor \
 	image-build image-scan image-smoke-test image-sign push rollout app-logs mongo-run dapr-run zipkin-deploy \
 	redis-deploy apply deploy deploy-full release \
 	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run \

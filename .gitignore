@@ -27,3 +27,6 @@ vendor
 dist/
 main
 .bin/
+
+# PlantUML render trigger — a version-stamped sentinel, not a tracked artefact.
+docs/diagrams/out/.plantuml-*.stamp

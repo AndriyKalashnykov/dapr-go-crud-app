@@ -1,0 +1,36 @@
+@startuml c4-context
+' Vendored C4-PlantUML (see docs/diagrams/C4-PlantUML/); -DRELATIVE_INCLUDE=. makes
+' the stdlib's internal includes resolve locally (no network fetch at render time).
+!include C4-PlantUML/C4_Context.puml
+
+LAYOUT_LEFT_RIGHT()
+
+' Modern flat styling: no shadows, sharp corners, clean sans-serif, modern palette.
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam roundCorner 4
+skinparam defaultFontName "Inter, Helvetica, Arial, sans-serif"
+skinparam defaultFontSize 13
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.2
+skinparam rectangleBorderThickness 1.3
+
+UpdateElementStyle("person",          $fontColor="#FFFFFF", $bgColor="#0F766E", $borderColor="#134E4A")
+UpdateElementStyle("system",          $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
+UpdateElementStyle("external_system", $fontColor="#FFFFFF", $bgColor="#64748B", $borderColor="#475569")
+
+title System Context — Dapr Go CRUD App
+
+Person(user, "User", "REST client")
+
+System(app, "Dapr Go CRUD App", "Ten Go microservices on Kubernetes exercising four Dapr building blocks: pub/sub, state store, service invocation, resiliency")
+
+System_Ext(redis, "Redis", "Dapr state store + pub/sub broker (single backplane)")
+System_Ext(mongo, "MongoDB", "Optional crud-app storage backend")
+
+Rel(user, app, "Manages todos", "HTTPS / JSON")
+Rel(app, redis, "State + pub/sub traffic", "Dapr SDK")
+Rel(app, mongo, "Optional CRUD backend", "MongoDB wire")
+
+SHOW_LEGEND()
+@enduml
