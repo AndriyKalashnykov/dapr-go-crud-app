@@ -341,14 +341,15 @@ Runs on every push to `main`, on `v*` tags, on pull requests, and via `workflow_
 
 | Job | Triggers / Needs | Steps |
 |-----|------------------|-------|
-| `changes` | All triggers | `dorny/paths-filter` decides whether code paths changed (skips doc-only updates) |
+| `changes` | All triggers | `dorny/paths-filter` positive allow-list for `code` + a `docs` output (`README.md`). Doc-only changes (README/LICENSE/docs/PNGs) skip the heavy jobs |
+| `mermaid-lint` | `needs: [changes]`, only on doc-only changes (`code=false`, `docs=true`) | `make mermaid-lint` — validates the README's Mermaid diagram when `static-check` is skipped |
 | `static-check` | `needs: [changes]`, only if `code` changed | `make static-check` (composite gate) |
 | `build` | `needs: [changes, static-check]` | `make build` + upload `.bin/` artifacts |
 | `test` | `needs: [changes, static-check]` | `make test` (unit) |
 | `integration-test` | `needs: [changes, static-check]` | `make integration-test` (Testcontainers) |
 | `e2e` | `needs: [changes, build]` | `helm/kind-action` → `make dapr-install` → `make e2e-redis-deploy` → `make e2e-apply` → `make e2e-smoke`; on failure dumps pod state + logs |
 | `docker` | `needs: [static-check, build, test, integration-test, e2e]`, `if: startsWith(github.ref, 'refs/tags/')`, `strategy.matrix.binary` × 10 | Tag-gated supply-chain pipeline per /harden-image-pipeline Pattern A: ko build local → Trivy image scan (CRITICAL/HIGH) → smoke test → ko publish multi-arch (`linux/amd64,linux/arm64`) → cosign keyless OIDC signing by digest. Permissions `packages: write` + `id-token: write` are job-scoped. |
-| `ci-pass` | `needs: [changes, static-check, build, test, integration-test, e2e, docker]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Tag-gated `docker` is `skipped` on non-tag pushes (treated as non-failure). Use this as the single required-status-check rule. |
+| `ci-pass` | `needs: [changes, mermaid-lint, static-check, build, test, integration-test, e2e, docker]`, `if: always()` | Aggregator — fails if any required job failed or was cancelled. Jobs `skipped` on doc-only / non-tag pushes are treated as non-failure. Use this as the single required-status-check rule. |
 
 Concurrency: `cancel-in-progress: true`. Permissions: `contents: read` (jobwise; `changes` adds `pull-requests: read`).
 

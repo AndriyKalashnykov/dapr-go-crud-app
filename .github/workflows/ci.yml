@@ -24,6 +24,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -32,11 +33,48 @@ jobs:
         with:
           # 'base' is silently ignored on pull_request events; only set it on push.
           base: ${{ github.event_name == 'push' && 'main' || '' }}
+          # POSITIVE allow-list, NOT a `**`+negation form. dorny/paths-filter's
+          # default `some` quantifier makes `- '**'` always match, so a
+          # `- '**' / - '!**.md'` list is DEAD (every change classified as code —
+          # verified empirically). picomatch `!(...)` extglobs are also unreliable
+          # for deep paths. An allow-list of standalone positive patterns is the
+          # only form that classifies correctly here. A NEW top-level code dir
+          # MUST be added here or its changes silently skip CI.
           filters: |
             code:
-              - '**'
-              - '!**.md'
-              - '!LICENSE'
+              - 'cmd/**'
+              - 'pkg/**'
+              - 'deploy/**'
+              - '.dapr/**'
+              - 'scripts/**'
+              - 'docs/diagrams/**/*.puml'
+              - '.github/workflows/**'
+              - 'Makefile'
+              - '.mise.toml'
+              - '.golangci.yml'
+              - 'go.mod'
+              - 'go.sum'
+              - 'renovate.json'
+              - '.env.example'
+              - '.gitignore'
+              - 'version.txt'
+              - 'CLAUDE.md'
+            docs:
+              - 'README.md'
+
+  # Cheap doc-only lint: a docs-only change (code=false) that touches a doc
+  # carrying an embedded Mermaid diagram (README) skips static-check, so
+  # validate the diagram here. On code changes this job is skipped and the
+  # same `make mermaid-lint` runs inside static-check instead (no double run).
+  mermaid-lint:
+    needs: [changes]
+    if: needs.changes.outputs.code != 'true' && needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Mermaid lint
+        run: make mermaid-lint
 
   static-check:
     needs: [changes]
@@ -236,7 +274,7 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [changes, static-check, build, test, integration-test, e2e, docker]
+    needs: [changes, mermaid-lint, static-check, build, test, integration-test, e2e, docker]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
