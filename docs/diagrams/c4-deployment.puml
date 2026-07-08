@@ -1,0 +1,50 @@
+@startuml c4-deployment
+' Vendored C4-PlantUML (see docs/diagrams/C4-PlantUML/); -DRELATIVE_INCLUDE=. makes
+' the stdlib's internal includes resolve locally (no network fetch at render time).
+!include C4-PlantUML/C4_Deployment.puml
+
+LAYOUT_LEFT_RIGHT()
+
+' Modern flat styling: no shadows, sharp corners, clean sans-serif, modern palette.
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam roundCorner 4
+skinparam defaultFontName "Inter, Helvetica, Arial, sans-serif"
+skinparam defaultFontSize 13
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.2
+skinparam rectangleBorderThickness 1.3
+
+UpdateElementStyle("container", $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
+UpdateElementStyle("node",      $bgColor="#F1F5F9", $borderColor="#94A3B8", $fontColor="#1E293B")
+AddElementTag("datastore", $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
+AddElementTag("sidecar",   $fontColor="#FFFFFF", $bgColor="#0F766E", $borderColor="#134E4A")
+
+title Deployment — Kubernetes (KinD local / any conformant cluster)
+
+Deployment_Node(k8s, "Kubernetes cluster", "KinD locally; Dapr installed via Helm") {
+
+  Deployment_Node(ns_app, "Namespace: crud-app") {
+    Deployment_Node(pod, "App pod  (× 10 Deployments, replicas 1-2)") {
+      Container(app, "App container", "Go 1.26.4", "one of crud / timeline / service-a..c / publisher / consumer / datagen / dummy / errorgen")
+      Container(sidecar, "daprd", "Dapr 1.17", "injected sidecar — app calls it on localhost:3500 / :50001", $tags="sidecar")
+    }
+    Deployment_Node(redispod, "Redis pod  (replicas 1)") {
+      ContainerDb(redis, "Redis", "redis:8-alpine", "statestore + pubsub backplane, reached at redis-master.crud-app:6379", $tags="datastore")
+    }
+    Container(svc, "Services (ClusterIP)", "kube-dns", "crud-app / timeline-app / redis-master — in-cluster DNS")
+  }
+
+  Deployment_Node(ns_dapr, "Namespace: dapr-system") {
+    Container(injector, "Sidecar injector", "Dapr 1.17", "mutating webhook — injects daprd into pods annotated dapr.io/enabled")
+    Container(cp, "Control plane", "Dapr 1.17", "operator + sentry + placement + scheduler")
+  }
+}
+
+Rel(injector, sidecar, "Injects on pod admission", "MutatingWebhook")
+Rel(app, sidecar, "Building-block API", "localhost gRPC/HTTP")
+Rel(sidecar, redis, "State + pub/sub", "via redis-master ClusterIP")
+Rel(sidecar, cp, "mTLS identity, placement", "gRPC")
+
+SHOW_LEGEND()
+@enduml

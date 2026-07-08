@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://app.renovatebot.com/dashboard#github/AndriyKalashnykov/dapr-go-crud-app)
 
-# Dapr Go CRUD App
+# Dapr Go Microservices on Kubernetes
 
-Learn Dapr by running a real Go microservice topology on Kubernetes. Ten services exercise the four building blocks — pub/sub, state store, service invocation, resiliency — across a single Redis backplane. Multi-arch images are built with `ko`, signed by cosign keyless OIDC, and tag-published to GHCR.
+Learn Dapr by running a real Go microservice topology on Kubernetes. The **learning surface** is ten Go services exercising four Dapr building blocks — pub/sub with content-based routing, state store, service invocation, and resiliency — across a single Redis backplane, with MongoDB as an optional storage backend. The **scaffolding surface** covers a three-layer test pyramid (unit, Testcontainers integration, KinD + Dapr e2e), a `make static-check` gate (golangci-lint, gosec, govulncheck, gitleaks, Trivy fs+config, actionlint, shellcheck, mermaid-lint, C4-PlantUML drift) and a supply-chain–hardened GitHub Actions pipeline (multi-arch `ko` build, Trivy image scan, cosign keyless OIDC signing to GHCR) on an `mise`-pinned toolchain with Renovate-managed dependencies.
 
 <p align="center"><img src="docs/diagrams/out/c4-context.png" alt="C4 System Context — Dapr Go CRUD App" width="900"></p>
 
@@ -65,6 +65,14 @@ Key facts:
 - **Redis is `redis:8-alpine` standalone**, not a Helm chart. ~30 MB image, ephemeral storage (`emptyDir` for `/data`), password-protected via a Secret generated at deploy-time. Replaces an earlier `bitnami/redis` chart dependency.
 - **MongoDB is optional**, used only when `crud-app` is launched with `-connStr=mongodb://...`. The default `-connStr=dapr` path goes through Redis via the Dapr state store.
 
+### Deployment topology
+
+<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment — Kubernetes" width="800">
+
+- **daprd is injected, not declared.** Each app Deployment carries `dapr.io/enabled: "true"`; the Dapr sidecar-injector mutating webhook in `dapr-system` adds a `daprd` container to the pod at admission. The app and its sidecar share the pod network, so the app reaches Dapr on `localhost:3500` (HTTP) / `:50001` (gRPC) — standard sidecar injection, not shared/ambient.
+- **Redis is a separate Deployment**, reached in-cluster at `redis-master.crud-app:6379` via a ClusterIP Service. Every app's sidecar (not the app) talks to it.
+- **The control plane** (`operator + sentry + placement + scheduler`) runs in `dapr-system` from the `dapr/dapr` Helm chart; sidecars fetch their mTLS identity from sentry and register with placement over gRPC.
+
 ### Event flow
 
 The C4 diagrams above show what exists; this sequence shows the pub/sub round-trip from a create to the timeline read — every hop goes through the daprd sidecar, never Redis directly.
@@ -89,7 +97,29 @@ sequenceDiagram
   T-->>U: recent CRUD events
 ```
 
-Source files: [`docs/diagrams/c4-context.puml`](docs/diagrams/c4-context.puml), [`docs/diagrams/c4-container.puml`](docs/diagrams/c4-container.puml) (C4-PlantUML, vendored stdlib under `docs/diagrams/C4-PlantUML/`); regenerate the PNGs with `make diagrams`.
+The service-invocation chain plus the `events` fan-out — `service-a` calls `service-b` through the sidecars (mTLS), `service-b` publishes to `events`, and both `consumer-app` and `service-c` receive it:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant SA as service-a
+  participant DA as service-a sidecar
+  participant DB as service-b sidecar
+  participant SB as service-b
+  participant R as Redis
+  participant CN as consumer-app
+  participant SC as service-c
+
+  SA->>DA: InvokeMethod service-b/hello
+  DA->>DB: forward (mTLS)
+  DB->>SB: POST /hello
+  SB->>DB: PublishEvent 'events'
+  DB->>R: XADD 'events'
+  R-->>CN: deliver 'events'
+  R-->>SC: deliver 'events' (fan-out)
+```
+
+Source files: [`docs/diagrams/c4-context.puml`](docs/diagrams/c4-context.puml), [`docs/diagrams/c4-container.puml`](docs/diagrams/c4-container.puml), [`docs/diagrams/c4-deployment.puml`](docs/diagrams/c4-deployment.puml) (C4-PlantUML, vendored stdlib under `docs/diagrams/C4-PlantUML/`); regenerate the PNGs with `make diagrams`.
 
 ### Apps
 
