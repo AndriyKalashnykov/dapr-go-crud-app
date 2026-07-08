@@ -25,8 +25,8 @@ title Deployment — Kubernetes (KinD local / any conformant cluster)
 Deployment_Node(k8s, "Kubernetes cluster", "KinD locally; Dapr installed via Helm") {
 
   Deployment_Node(ns_app, "Namespace: crud-app") {
-    Deployment_Node(pod, "App pod  (× 10 Deployments, replicas 1-2)") {
-      Container(app, "App container", "Go 1.26.4", "one of crud / timeline / service-a..c / publisher / consumer / datagen / dummy / errorgen")
+    Deployment_Node(pod, "App pod  (× 9 Deployments, replicas 1-2)") {
+      Container(app, "App container", "Go 1.26.4", "one of crud / timeline / service-a..c / publisher / consumer / datagen / errorgen")
       Container(sidecar, "daprd", "Dapr 1.17", "injected sidecar — app calls it on localhost:3500 / :50001", $tags="sidecar")
     }
     Deployment_Node(redispod, "Redis pod  (replicas 1)") {

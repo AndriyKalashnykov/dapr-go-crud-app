@@ -91,6 +91,11 @@ DAPR_HELM_VERSION ?= 1.17.1
 # parallel make invocations from sibling projects.
 KUBECTL_E2E := kubectl --context=kind-$(KIND_CLUSTER_NAME)
 HELM_E2E    := helm --kube-context=kind-$(KIND_CLUSTER_NAME)
+# Manual/production cluster recipes (rollout, app-logs, deploy) run against the
+# operator's ambient context. `?=` lets them be pinned at invocation, e.g.
+# `make deploy KUBECTL='kubectl --context=my-prod'`, without touching the
+# kind-scoped e2e flow above.
+KUBECTL ?= kubectl
 
 #help: @ List available tasks
 help:
@@ -247,8 +252,9 @@ check-ports:
 static-check: check-go-alignment check-env format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint diagrams-check
 
 #run: @ Run the main app locally (requires Dapr sidecar)
-run: deps
-	@go run ./cmd/app.go serve -connStr dapr
+run: CHECK_PORTS = 8080
+run: check-ports deps
+	@go run ./cmd/app serve -connStr dapr
 
 #update: @ Update Go dependencies (aggressive — major bumps allowed)
 update: deps
@@ -295,12 +301,12 @@ image-sign: deps
 
 #rollout: @ Restart app pods
 rollout:
-	@kubectl delete pod -l app=crud-app -n $(APP_NAMESPACE)
-	@kubectl delete pod -l app=timeline-app -n $(APP_NAMESPACE)
+	@$(KUBECTL) delete pod -l app=crud-app -n $(APP_NAMESPACE)
+	@$(KUBECTL) delete pod -l app=timeline-app -n $(APP_NAMESPACE)
 
 #app-logs: @ Show crud-app container logs
 app-logs:
-	@kubectl logs -l app=crud-app -c crud-app -n $(APP_NAMESPACE)
+	@$(KUBECTL) logs -l app=crud-app -c crud-app -n $(APP_NAMESPACE)
 
 #mongo-run: @ Run MongoDB in Docker
 mongo-run: CHECK_PORTS = 27017
@@ -314,32 +320,32 @@ dapr-run: check-ports build
 
 #zipkin-deploy: @ Deploy Zipkin to the current namespace
 zipkin-deploy:
-	@kubectl create deployment zipkin --image openzipkin/zipkin:$(ZIPKIN_VERSION) -n $(APP_NAMESPACE)
-	@kubectl expose deployment zipkin --type ClusterIP --port 9411 -n $(APP_NAMESPACE)
+	@$(KUBECTL) create deployment zipkin --image openzipkin/zipkin:$(ZIPKIN_VERSION) -n $(APP_NAMESPACE)
+	@$(KUBECTL) expose deployment zipkin --type ClusterIP --port 9411 -n $(APP_NAMESPACE)
 
 #redis-deploy: @ Deploy upstream redis (standalone) into the current namespace
 redis-deploy:
-	@kubectl create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	@$(KUBECTL) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
 	@# Generate the redis-password Secret only if it doesn't already exist —
 	@# regenerating on every run would break the running Redis (server boots
 	@# with the old password; new clients try the new). Per /security:
 	@# `--from-file=KEY=/dev/stdin` (stdin form) keeps the value out of argv.
-	@if ! kubectl get secret redis -n $(APP_NAMESPACE) >/dev/null 2>&1; then \
+	@if ! $(KUBECTL) get secret redis -n $(APP_NAMESPACE) >/dev/null 2>&1; then \
 		printf '%s' "$$(openssl rand -base64 16)" | \
-			kubectl create secret generic redis -n $(APP_NAMESPACE) \
+			$(KUBECTL) create secret generic redis -n $(APP_NAMESPACE) \
 				--from-file=redis-password=/dev/stdin \
 				--dry-run=client -o yaml | \
-			kubectl apply -f -; \
+			$(KUBECTL) apply -f -; \
 	fi
-	@kubectl apply -f deploy/redis.yaml -n $(APP_NAMESPACE)
-	@kubectl rollout status deployment/redis -n $(APP_NAMESPACE) --timeout=120s
+	@$(KUBECTL) apply -f deploy/redis.yaml -n $(APP_NAMESPACE)
+	@$(KUBECTL) rollout status deployment/redis -n $(APP_NAMESPACE) --timeout=120s
 
 #apply: @ Apply Dapr config and deployments (no image push)
 apply:
-	@kubectl create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
-	@kubectl apply -f .dapr/configuration.yaml -n $(APP_NAMESPACE)
-	@kubectl apply -f .dapr/components -n $(APP_NAMESPACE)
-	@kubectl apply -f deploy -n $(APP_NAMESPACE)
+	@$(KUBECTL) create namespace $(APP_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	@$(KUBECTL) apply -f .dapr/configuration.yaml -n $(APP_NAMESPACE)
+	@$(KUBECTL) apply -f .dapr/components -n $(APP_NAMESPACE)
+	@$(KUBECTL) apply -f deploy -n $(APP_NAMESPACE)
 
 #deploy: @ Apply manifests without rebuilding images (fast iteration)
 deploy: redis-deploy apply

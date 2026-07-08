@@ -73,12 +73,12 @@ Key facts:
 
 - **One Redis instance carries both Dapr components.** The `pubsub.redis` and `state.redis` components in `.dapr/components/` point at the same `redis-master.crud-app:6379` Service — the `subscriptionScopes` and `publishingScopes` metadata fields on the pubsub component are what make the topic routing work without separate brokers.
 - **All app traffic goes through the daprd sidecar.** The apps never speak to Redis directly; they call `client.SaveState(...)` / `client.PublishEvent(...)` / `client.InvokeMethod(...)` against `localhost:50001` (the in-pod sidecar's gRPC port), and the sidecar talks to Redis on their behalf. That's the pattern the Dapr control plane (`dapr-system`) is bootstrapping.
-- **Redis is `redis:8-alpine` standalone**, not a Helm chart. ~30 MB image, ephemeral storage (`emptyDir` for `/data`), password-protected via a Secret generated at deploy-time. Replaces an earlier `bitnami/redis` chart dependency.
+- **Redis is `redis:8-alpine` standalone**, not a Helm chart — pulled via the `public.ecr.aws/docker/library/redis` mirror (same upstream image, avoids Docker Hub rate limits). ~30 MB image, ephemeral storage (`emptyDir` for `/data`), password-protected via a Secret generated at deploy-time. Replaces an earlier `bitnami/redis` chart dependency.
 - **MongoDB is optional**, used only when `crud-app` is launched with `-connStr=mongodb://...`. The default `-connStr=dapr` path goes through Redis via the Dapr state store.
 
 ### Deployment topology
 
-<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment — Kubernetes" width="800">
+<img src="docs/diagrams/out/c4-deployment.png" alt="C4 Deployment — Kubernetes" width="640">
 
 - **daprd is injected, not declared.** Each app Deployment carries `dapr.io/enabled: "true"`; the Dapr sidecar-injector mutating webhook in `dapr-system` adds a `daprd` container to the pod at admission. The app and its sidecar share the pod network, so the app reaches Dapr on `localhost:3500` (HTTP) / `:50001` (gRPC) — standard sidecar injection, not shared/ambient.
 - **Redis is a separate Deployment**, reached in-cluster at `redis-master.crud-app:6379` via a ClusterIP Service. Every app's sidecar (not the app) talks to it.
@@ -275,6 +275,7 @@ Run `make help` to see all targets. They are grouped here for reference.
 | `make static-check` | Composite gate: `check-go-alignment` + `check-env` + `format-check` + `lint` + `lint-ci` + `shellcheck` + `sec` + `vulncheck` + `secrets` + `trivy-fs` + `trivy-config` + `mermaid-lint` + `diagrams-check` |
 | `make check-go-alignment` | Fail if the Go version disagrees between `go.mod` and `.mise.toml` (first `static-check` gate) |
 | `make check-env` | STOPPER gate — fail if the committed `.env.example` source-of-truth is missing |
+| `make check-ports` | Preflight — fail early if a fixed host port a run/deploy target binds is already in use (naming the holder); guards `run`/`mongo-run`/`dapr-run` |
 | `make format` | `gofmt -w .` (mutates tree) |
 | `make format-check` | Verify tree is gofmt-clean (CI gate) |
 | `make lint` | golangci-lint (gocritic enabled via `.golangci.yml`) |
@@ -356,7 +357,7 @@ Runs on every push to `main`, on `v*` tags, on pull requests, and via `workflow_
 |-----|------------------|-------|
 | `changes` | All triggers | `dorny/paths-filter` positive allow-list for `code` + a `docs` output (`README.md`). Doc-only changes (README/LICENSE/docs/PNGs) skip the heavy jobs |
 | `mermaid-lint` | `needs: [changes]`, only on doc-only changes (`code=false`, `docs=true`) | `make mermaid-lint` — validates the README's Mermaid diagram when `static-check` is skipped |
-| `static-check` | `needs: [changes]`, only if `code` changed | `make static-check` (composite gate) |
+| `static-check` | `needs: [changes]`, if `code` changed or on `v*` tags | `make static-check` (composite gate) |
 | `build` | `needs: [changes, static-check]` | `make build` + upload `.bin/` artifacts |
 | `test` | `needs: [changes, static-check]` | `make test` (unit) |
 | `integration-test` | `needs: [changes, static-check]` | `make integration-test` (Testcontainers) |

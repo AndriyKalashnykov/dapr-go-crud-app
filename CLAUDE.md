@@ -110,7 +110,7 @@ Jobs (with explicit dependency edges):
 4. **`build`** — `needs: [changes, static-check]`. Runs `make build`, uploads `.bin/` artifacts.
 5. **`test`** — `needs: [changes, static-check]`. Runs `make test` (unit).
 6. **`integration-test`** — `needs: [changes, static-check]`. Runs `make integration-test` (Testcontainers Mongo + httptest).
-7. **`e2e`** — `needs: [changes, build, test]`. Provisions KinD via `helm/kind-action`, installs Dapr via Helm, applies `deploy/redis.yaml` (upstream `redis:8-alpine` standalone — no Helm chart), ko-builds + `kind load`s the images (`make e2e-load-images`), applies the app manifests, runs `make e2e-smoke`. Diagnostic dump on failure.
+7. **`e2e`** — `needs: [changes, build, test]`. Provisions KinD via `helm/kind-action`, installs Dapr via Helm, applies `deploy/redis.yaml` (`redis:8-alpine` standalone via the `public.ecr.aws/docker/library` mirror — no Helm chart), ko-builds + `kind load`s the images (`make e2e-load-images`), applies the app manifests, runs `make e2e-smoke`. Diagnostic dump on failure.
 8. **`docker`** — `needs: [static-check, build, test, integration-test, e2e]`, `if: startsWith(github.ref, 'refs/tags/')`, `strategy.matrix.binary` across all 10 cmds. Per /harden-image-pipeline Pattern A: ko build local → Trivy image scan → smoke test → ko publish multi-arch to GHCR → cosign keyless OIDC signing by digest. `provenance: false`/`sbom: false` (default — keeps the image index free of `unknown/unknown` entries so GHCR "OS / Arch" tab renders). Permissions: `contents: read`, `packages: write`, `id-token: write` (all job-scoped).
 9. **`ci-pass`** — `needs: [changes, mermaid-lint, static-check, build, test, integration-test, e2e, docker]`, `if: always()`. Aggregator that fails if any required job failed/cancelled. Jobs `skipped` on doc-only / non-tag pushes are treated as non-failure. Single status check to require in branch protection.
 
@@ -145,11 +145,16 @@ Toolchain bumps (Makefile + `.mise.toml`) are grouped into a single PR; Dapr SDK
 Deferred items (with the trigger/rationale for each) — not open bugs; each was
 consciously held out of an automated apply. Prune an item when its work lands.
 
-- **helm 3.20 → 4.x** — a MAJOR upstream bump is available (`.mise.toml` pins 3.20.2). Deferred: Helm 4 has breaking chart-API / CLI changes; the `dapr-install`/`e2e` path uses `helm`, so this needs a manual migration review, not a drop-in.
-- **dapr/cli 1.17.1 → 1.18.0** (`.mise.toml`) — a Dapr **runtime** bump. Deferred because it must land as a coordinated change: align `DAPR_HELM_VERSION` (Makefile) to match, and update the C4 diagram tech-strings + prose that say "Dapr 1.17". Not a version-only drop-in.
-- **aquasecurity/trivy-action v0.9.2 → v0.36.0** (`ci.yml`, `docker` job) — a 27-major bump. Deferred: the `docker` job is tag-gated, so the change can't be validated without cutting a tag; verify a scan still passes on the next release tag before/after bumping.
-- **Makefile `release` target** creates no GitHub Release object and `git push`es a version-bump commit to `main`, which the repo Ruleset blocks — so `make release` can't complete as-is. Follow-up: add `gh release create --generate-notes` + a PR-based version-bump flow.
+- **helm 3.20 → 4.x** — a MAJOR upstream bump is available (helm is pinned in `.mise.toml`). Deferred: Helm 4 has breaking chart-API / CLI changes; the `dapr-install`/`e2e` path uses `helm`, so this needs a manual migration review, not a drop-in.
+- **dapr/cli 1.17 → 1.18** (`.mise.toml`) — a Dapr **runtime** bump. Deferred because it must land as a coordinated change: align `DAPR_HELM_VERSION` (Makefile) to match, and update the C4 diagram tech-strings + prose that say "Dapr 1.17". Not a version-only drop-in.
+- **aquasecurity/trivy-action** (`ci.yml`, `docker` job) is many majors behind latest — a large bump. Deferred: the `docker` job is tag-gated, so the change can't be validated without cutting a tag; verify a scan still passes on the next release tag before/after bumping.
 - **`/test-coverage-analysis` findings** — `scripts/e2e-smoke.sh` hardcodes local port-forward aliases `18080`/`18081` (should be kernel-ephemeral for parallel-run safety — HIGH); the `events` fan-out assertion is masked (passes if *either* subscriber sees the event, `service-c=0` downgraded to WARN, while `service-c` now carries the grpc annotation — MEDIUM). Run `/test-coverage-analysis` to apply.
+
+## Known Limitations
+
+Self-owned constraints (not upstream-blocked — the fix is ours to make when it's worth it):
+
+- **`make release` cannot complete as-is** — it creates no GitHub Release object and `git push`es a version-bump commit to `main`, which the repo Ruleset blocks. Follow-up: add `gh release create --generate-notes` + a PR-based version-bump flow.
 
 ## Skills
 
