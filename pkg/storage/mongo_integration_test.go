@@ -17,10 +17,11 @@ import (
 	tcmongo "github.com/testcontainers/testcontainers-go/modules/mongodb"
 )
 
-// Pinned to match the version Renovate tracks via the Makefile MONGO_VERSION
-// constant — keep them in lockstep so the test environment matches `make
-// mongo-run` and the deploy/redis-Helm-equivalent local Mongo flow.
-const mongoImage = "mongo:8.0"
+// mongoImage is single-sourced from the Renovate-tracked Makefile MONGO_VERSION
+// via `make integration-test` (which exports MONGO_IMAGE=mongo:$(MONGO_VERSION));
+// the literal fallback here only applies to a bare `go test -tags=integration`.
+// `env` is defined in dapr_integration_test.go (same package + build tag).
+var mongoImage = env("MONGO_IMAGE", "mongo:8.0")
 
 // startMongo spins up a fresh MongoDB Testcontainer and returns a connected
 // `*mongo.Collection` against an isolated database/collection that auto-

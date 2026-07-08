@@ -13,6 +13,18 @@
 # can't be exercised against a real sidecar in a flat `docker run`).
 set -euo pipefail
 
+# Load committed defaults then optional override so SMOKE_BOOT_DELAY is tunable
+# without editing this script.
+# shellcheck source=/dev/null
+if [ -f .env.example ]; then set -a; . ./.env.example; set +a; fi
+# shellcheck source=/dev/null
+if [ -f .env         ]; then set -a; . ./.env;         set +a; fi
+
+# Seconds to let each container boot (or crash-loop) before the running-check.
+# Dapr-client binaries dial their sidecar with a bounded deadline; this must be
+# ≥ that deadline so a healthy client isn't misread as a crash.
+SMOKE_BOOT_DELAY="${SMOKE_BOOT_DELAY:-5}"
+
 if [ "$#" -eq 0 ]; then
   echo "Usage: $0 <image-ref> [<image-ref> ...]" >&2
   exit 2
@@ -32,10 +44,10 @@ for ref in "$@"; do
     continue
   fi
 
-  # Give it 5s to crash-loop if it's going to.
-  sleep 5
+  # Give it SMOKE_BOOT_DELAY seconds to crash-loop if it's going to.
+  sleep "$SMOKE_BOOT_DELAY"
   if docker ps --filter "name=$name" --filter "status=running" --format '{{.Names}}' | grep -qx "$name"; then
-    echo "PASS: ${ref} still running after 5s"
+    echo "PASS: ${ref} still running after ${SMOKE_BOOT_DELAY}s"
   else
     # Container stopped — distinguish clean exit (CLI tool / printed usage
     # and exited 0) from panic / segfault / unhandled error (non-zero exit).
@@ -43,7 +55,7 @@ for ref in "$@"; do
     if [ "$exit_code" = "0" ]; then
       echo "PASS: ${ref} exited cleanly (code 0)"
     else
-      echo "FAIL: ${ref} exited within 5s (code ${exit_code})"
+      echo "FAIL: ${ref} exited within ${SMOKE_BOOT_DELAY}s (code ${exit_code})"
       docker logs "$name" 2>&1 | tail -30
       EXIT=1
     fi

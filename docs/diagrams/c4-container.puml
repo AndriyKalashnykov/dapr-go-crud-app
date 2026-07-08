@@ -27,9 +27,9 @@ title Container View — Dapr Go CRUD App
 Person(user, "User", "REST client")
 
 System_Boundary(b1, "Kubernetes namespace: crud-app") {
-  Container(rest, "REST tier", "Go 1.26.4, Gin", "crud-app + timeline-app — the only HTTP listeners")
-  Container(svc, "Service-invocation tier", "Go 1.26.4, Dapr Go SDK", "service-a / service-b / service-c — gRPC subscribers + invokers")
-  Container(gens, "Load and chaos tier", "Go 1.26.4, Dapr Go SDK", "publisher / consumer / datagen / errorgen — exercise Dapr from background loops")
+  Container(rest, "REST tier", "Go 1.26.5, Gin", "crud-app + timeline-app — the only HTTP listeners")
+  Container(svc, "Service-invocation tier", "Go 1.26.5, Dapr Go SDK", "service-a / service-b / service-c — gRPC subscribers + invokers")
+  Container(gens, "Load and chaos tier", "Go 1.26.5, Dapr Go SDK", "publisher / consumer / datagen / errorgen — exercise Dapr from background loops")
   Container(daprd, "Dapr sidecars", "Dapr 1.17", "One daprd per pod — injected by the Dapr mutating webhook")
   ContainerDb(redis, "Redis", "redis:8-alpine, standalone", "Backs both 'statestore' and 'pubsub' Dapr components", $tags="datastore")
 }
