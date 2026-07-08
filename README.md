@@ -52,6 +52,17 @@ Install everything with one command:
 make deps
 ```
 
+### Configuration (optional)
+
+The defaults work out of the box. To override operator-tunable values (image
+registry, namespace, KinD cluster name, cleanup retention, …), copy the
+committed [`.env.example`](.env.example) to a gitignored `.env` and edit it —
+the Makefile's `-include .env` makes those values authoritative for `make`:
+
+```bash
+cp .env.example .env    # then edit; e.g. set KO_DOCKER_REPO for your registry
+```
+
 ## Architecture
 
 The system runs as 10 sidecar-injected pods in the `crud-app` namespace, sharing a single Redis instance as both the Dapr state store and the pub/sub broker.

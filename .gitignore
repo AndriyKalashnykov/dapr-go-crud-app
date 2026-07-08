@@ -28,5 +28,8 @@ dist/
 main
 .bin/
 
+# Operator overrides — gitignored; `.env.example` is the committed source of truth.
+.env
+
 # PlantUML render trigger — a version-stamped sentinel, not a tracked artefact.
 docs/diagrams/out/.plantuml-*.stamp
