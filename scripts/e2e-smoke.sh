@@ -43,6 +43,8 @@ E2E_INVOKE_ATTEMPTS="${E2E_INVOKE_ATTEMPTS:-45}"
 E2E_INVOKE_DELAY="${E2E_INVOKE_DELAY:-2}"
 E2E_FANOUT_ATTEMPTS="${E2E_FANOUT_ATTEMPTS:-30}"
 E2E_FANOUT_DELAY="${E2E_FANOUT_DELAY:-2}"
+E2E_GENERATOR_ATTEMPTS="${E2E_GENERATOR_ATTEMPTS:-30}"
+E2E_GENERATOR_DELAY="${E2E_GENERATOR_DELAY:-2}"
 # Un-mask the service-c fan-out assertion (make it a hard FAIL) by setting
 # E2E_REQUIRE_SERVICE_C_FANOUT=true. Defaults to true; set false only to
 # tolerate a known-broken service-c subscription during investigation.
@@ -272,6 +274,31 @@ elif [ "$E2E_REQUIRE_SERVICE_C_FANOUT" = "true" ]; then
 else
   echo "WARN: events fan-out asymmetric — service-c received 0 events (consumer-app=${consumer_seen}); tolerated by E2E_REQUIRE_SERVICE_C_FANOUT=false"
 fi
+
+# ---- 4b. Generator liveness: datagen / errorgen / publisher ----
+# These background workers have no HTTP surface and no unit tests (pure
+# ticker-driven Dapr-client side-effect loops), so the e2e is the only place
+# they are asserted. wait_for_all_deployments already proved they START; here we
+# prove each is actively RUNNING its loop by grepping its unconditional ticker
+# log line (datagen "generating reads" every 5s; errorgen "generating invoke
+# method errors" every 10s; publisher "generating event" every 10s). They've
+# been running since deploy, so the line is normally already present.
+assert_generator_alive() {
+  local label="$1" needle="$2" _
+  for _ in $(seq 1 "$E2E_GENERATOR_ATTEMPTS"); do
+    if "${KUBECTL[@]}" logs -l "app=${label}" --tail=200 2>/dev/null | grep -qF "$needle"; then
+      pass "generator ${label} is alive (emitted '${needle}')"
+      return 0
+    fi
+    sleep "$E2E_GENERATOR_DELAY"
+  done
+  fail "generator ${label} did NOT emit '${needle}' within budget (recent logs: $("${KUBECTL[@]}" logs -l "app=${label}" --tail=15 2>/dev/null | tr '\n' '|'))"
+  return 1
+}
+echo "==> Asserting generator liveness (datagen/errorgen/publisher emitting work, poll up to $((E2E_GENERATOR_ATTEMPTS * E2E_GENERATOR_DELAY))s each)"
+assert_generator_alive datagen-app   "generating reads"
+assert_generator_alive errorgen-app  "generating invoke method errors"
+assert_generator_alive publisher-app "generating event"
 
 # ---- 5. Negative cases ----
 echo "==> Negative: malformed JSON"
