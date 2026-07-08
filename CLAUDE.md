@@ -11,7 +11,7 @@
 - **Distributed runtime**: Dapr Go SDK
 - **Storage**: Redis (Dapr state store + pub/sub broker), MongoDB 8.0 (alternative crud-app backend)
 - **Container build**: ko 0.18 (publishes multi-arch images directly from Go source — no Dockerfile)
-- **Architecture diagrams**: C4-PlantUML (Context + Container) rendered offline from a vendored stdlib (`docs/diagrams/C4-PlantUML/`) to committed PNGs via `make diagrams`; Mermaid for the runtime sequence flow
+- **Architecture diagrams**: C4-PlantUML (Context + Container + Deployment) rendered offline from a vendored stdlib (`docs/diagrams/C4-PlantUML/`) to committed PNGs via `make diagrams`; Mermaid for the runtime sequence flows. `make check-readme-images` verifies external badges resolve (manual — external hosts flake, not in `static-check`)
 - **Image registry**: GHCR `ghcr.io/andriykalashnykov/dapr-go-crud-app/<binary>` (repo-namespace path; `GITHUB_TOKEN` cannot publish to user-namespace)
 - **Image supply-chain**: Trivy image scan (HIGH/CRITICAL blocking) → smoke test → cosign keyless OIDC signing by digest. Buildkit attestations OFF (Pattern A) so the GHCR "OS / Arch" tab renders
 - **Orchestration**: Kubernetes (Dapr injector + sidecars)

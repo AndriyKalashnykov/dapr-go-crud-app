@@ -195,11 +195,15 @@ diagrams-check: diagrams
 #vendor-diagrams: @ Re-download the pinned C4-PlantUML stdlib into docs/diagrams/C4-PlantUML
 vendor-diagrams:
 	@mkdir -p $(DIAGRAM_DIR)/C4-PlantUML
-	@for f in C4.puml C4_Context.puml C4_Container.puml; do \
+	@for f in C4.puml C4_Context.puml C4_Container.puml C4_Deployment.puml; do \
 		curl -sSL "https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/$(C4_PLANTUML_VERSION)/$$f" \
 			-o "$(DIAGRAM_DIR)/C4-PlantUML/$$f"; \
 	done
 	@echo "Vendored C4-PlantUML $(C4_PLANTUML_VERSION). Run 'make diagrams' and commit the re-rendered PNGs."
+
+#check-readme-images: @ Verify external README images (badges) resolve — manual; external hosts flake, NOT in static-check
+check-readme-images:
+	@bash scripts/check-external-images.sh README.md
 
 #static-check: @ Composite quality gate (lint + ci + sec + vulncheck + secrets + trivy + mermaid + diagrams)
 static-check: format-check lint lint-ci shellcheck sec vulncheck secrets trivy-fs trivy-config mermaid-lint diagrams-check
@@ -453,7 +457,7 @@ ci-run: deps
 		--bind
 
 .PHONY: help deps test integration-test build clean lint format format-check sec vulncheck secrets \
-	trivy-fs trivy-config lint-ci shellcheck mermaid-lint diagrams diagrams-clean diagrams-check vendor-diagrams static-check run update update-minor \
+	trivy-fs trivy-config lint-ci shellcheck mermaid-lint diagrams diagrams-clean diagrams-check vendor-diagrams check-readme-images static-check run update update-minor \
 	image-build image-scan image-smoke-test image-sign push rollout app-logs mongo-run dapr-run zipkin-deploy \
 	redis-deploy apply deploy deploy-full release \
 	renovate-validate deps-prune deps-prune-check cleanup-runs ci ci-run \
